@@ -1,0 +1,22 @@
+@import "tailwindcss";
+@import "@nuxt/ui";
+
+.document-editor .cm-editor { min-height: 24rem; outline: none; }
+.document-editor .cm-scroller { font-family: inherit; line-height: 1.75; }
+.document-editor.show-source .cm-scroller { font-family: var(--font-mono); }
+.document-editor .cm-content { padding: 1rem; caret-color: var(--ui-text); }
+.document-editor .cm-cursor { border-left-color: var(--ui-text); }
+.document-editor .cm-selectionBackground { background: var(--ui-bg-accented) !important; }
+.document-editor .cm-panels { background: var(--ui-bg-elevated); color: var(--ui-text); }
+.document-editor .cm-searchMatch { background: var(--ui-bg-accented); }
+.document-prose { overflow-wrap: anywhere; line-height: 1.75; }
+.document-prose :is(p, ul, ol, blockquote, pre, table) { margin-block: 1em; }
+.document-prose h1 { font-size: 1.875em; font-weight: 600; }
+.document-prose h2 { font-size: 1.5em; font-weight: 600; }
+.document-prose h3 { font-size: 1.25em; font-weight: 600; }
+.document-prose ul { list-style: disc; padding-left: 1.5em; }
+.document-prose ol { list-style: decimal; padding-left: 1.5em; }
+.document-prose blockquote { border-left: 3px solid var(--ui-border); padding-left: 1em; color: var(--ui-text-muted); }
+.document-prose pre { overflow-x: auto; padding: 1em; background: var(--ui-bg-muted); }
+.document-prose a { color: var(--ui-primary); text-decoration: underline; }
+.document-prose :is(th, td) { padding: .5em; border: 1px solid var(--ui-border); }
