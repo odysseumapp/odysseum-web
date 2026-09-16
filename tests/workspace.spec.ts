@@ -75,7 +75,7 @@ test('Vue pages render, format Markdown, switch views and work on mobile', async
   expect(errors).toEqual([])
 })
 
-test('creates files, saves metadata and links characters and locations', async ({ page }) => {
+test('creates files, saves metadata and links documents to each other', async ({ page }) => {
   const info = await createProject(page.request)
   await page.goto(projectUrl(info.slug))
   await chooseSection(page, 'Characters')
@@ -87,8 +87,8 @@ test('creates files, saves metadata and links characters and locations', async (
   await editor(page).fill('A **new** chapter begins.')
   await page.getByRole('button', { name: 'Details', exact: true }).click()
   await page.getByRole('textbox', { name: 'Synopsis', exact: true }).fill('A meeting by the water.')
-  for (const [field, item] of [['Characters', 'Ada'], ['Locations', 'Harbor']]) {
-    await page.getByRole('combobox', { name: field, exact: true }).click()
+  for (const item of ['Ada · Character', 'Harbor · Location']) {
+    await page.getByRole('combobox', { name: 'Links', exact: true }).click()
     await page.getByRole('option', { name: item, exact: true }).click()
     await page.keyboard.press('Escape')
   }
@@ -98,8 +98,8 @@ test('creates files, saves metadata and links characters and locations', async (
   await expect.poll(async () => {
     const current = await project(page.request, info.slug)
     const scene = current.documents.find(doc => doc.title === 'Arrival')
-    return scene && { synopsis: scene.synopsis, characters: scene.characters.length, locations: scene.locations.length }
-  }).toEqual({ synopsis: 'A meeting by the water.', characters: 1, locations: 1 })
+    return scene && { synopsis: scene.synopsis, links: scene.links.length }
+  }).toEqual({ synopsis: 'A meeting by the water.', links: 2 })
   const scene = (await project(page.request, info.slug)).documents.find(doc => doc.title === 'Arrival')!
   await expect.poll(() => readFile(path.resolve('.test-data/workspace', info.slug, scene.path), 'utf8')).toContain('A **new** chapter begins.')
   await page.reload()
@@ -120,51 +120,70 @@ async function newFolder(page: Page, name: string, topLevel = false) {
   await expect(page.getByRole('dialog')).toBeHidden()
 }
 
-test('every folder has a threads grid built from Threads documents, with swappable axes', async ({ page }) => {
+test('every folder has a grid of linked documents with chosen rows, chosen columns and swappable axes', async ({ page }) => {
   const info = await createProject(page.request)
   await createDoc(page.request, info.slug, 'Revelation', 'Characters/Race')
   const second = await createDoc(page.request, info.slug, 'Discovery', 'Characters')
   const nested = await createDoc(page.request, info.slug, 'Nested point', 'Characters/Race/Nested')
   const race = await createDoc(page.request, info.slug, 'Race', 'Threads')
   const cute = await createDoc(page.request, info.slug, 'Meet Cute', 'Threads/Story Beats')
+  const idea = await createDoc(page.request, info.slug, 'A stray idea', 'Notes/Ideas')
   await page.goto(projectUrl(info.slug))
   for (const name of ['Manuscript', 'Characters', 'Locations', 'Notes', 'Threads']) {
     await expect(page.locator('aside').getByRole('button', { name: `Folder ${name}`, exact: true })).toBeVisible()
   }
   await chooseSection(page, 'Characters')
-  await page.getByRole('tab', { name: 'Threads', exact: true }).click()
-  await expect(page.getByText('Add a thread to see where it runs through this folder.')).toBeVisible()
-  await page.getByRole('combobox', { name: 'Add thread', exact: true }).click()
-  await page.getByRole('option', { name: 'Race', exact: true }).click()
-  const grid = page.getByRole('table', { name: 'Threads', exact: true })
+  await page.getByRole('tab', { name: 'Grid', exact: true }).click()
+  await expect(page.getByText(/^Add a row/)).toBeVisible()
+  await page.getByRole('combobox', { name: 'Add row', exact: true }).click()
+  await page.getByRole('option', { name: 'Race · Thread', exact: true }).click()
+  const grid = page.getByRole('table', { name: 'Grid', exact: true })
   await expect(grid.getByRole('rowheader')).toContainText('Race')
   await grid.getByRole('button', { name: 'Add Discovery to Race', exact: true }).click()
   await expect(grid.getByRole('button', { name: 'Remove Discovery from Race', exact: true })).toBeVisible()
-  await expect.poll(async () => (await project(page.request, info.slug)).documents.find(doc => doc.id === second.document.id)?.threads).toEqual([race.document.id])
+  await expect.poll(async () => {
+    const current = await project(page.request, info.slug)
+    return [current.documents.find(doc => doc.id === second.document.id)?.links, current.documents.find(doc => doc.id === race.document.id)?.links]
+  }).toEqual([[race.document.id], [second.document.id]])
   await grid.getByRole('button', { name: 'Choose documents in Race for Race', exact: true }).click()
   await page.getByRole('dialog').getByRole('checkbox', { name: 'Nested point', exact: true }).click()
   await closeDialog(page)
   await expect(grid.getByRole('button', { name: 'Open Nested point', exact: true })).toBeVisible()
-  await expect.poll(async () => (await project(page.request, info.slug)).documents.find(doc => doc.id === nested.document.id)?.threads).toEqual([race.document.id])
-  await page.getByRole('combobox', { name: 'Add thread', exact: true }).click()
-  await page.getByRole('option', { name: 'Meet Cute', exact: true }).click()
-  await page.getByRole('button', { name: 'Show threads as columns', exact: true }).click()
+  await expect.poll(async () => (await project(page.request, info.slug)).documents.find(doc => doc.id === nested.document.id)?.links).toEqual([race.document.id])
+  // Columns from anywhere: every document under Notes/Ideas, each as its own column.
+  await page.getByRole('combobox', { name: 'Add column', exact: true }).click()
+  await page.getByRole('option', { name: 'Notes/Ideas · each document', exact: true }).click()
+  await grid.getByRole('button', { name: 'Add A stray idea to Race', exact: true }).click()
+  await expect(grid.getByRole('button', { name: 'Remove A stray idea from Race', exact: true })).toBeVisible()
+  await expect.poll(async () => {
+    const current = await project(page.request, info.slug)
+    const characters = current.folders.find(folder => folder.path === 'Characters')!
+    const ideas = current.folders.find(folder => folder.path === 'Notes/Ideas')!
+    const raceFolder = current.folders.find(folder => folder.path === 'Characters/Race')!
+    const expected = [raceFolder.id, second.document.id, `${ideas.id}/*`]
+    return { columns: characters.columns.join() === expected.join(), idea: current.documents.find(doc => doc.id === idea.document.id)?.links }
+  }).toEqual({ columns: true, idea: [race.document.id] })
+  await page.getByRole('button', { name: 'Use folder items as columns', exact: true }).click()
+  await expect(grid.getByRole('columnheader').filter({ hasText: 'A stray idea' })).toBeHidden()
+  await page.getByRole('combobox', { name: 'Add row', exact: true }).click()
+  await page.getByRole('option', { name: 'Meet Cute · Thread', exact: true }).click()
+  await page.getByRole('button', { name: 'Swap rows and columns', exact: true }).click()
   await expect(grid.getByRole('columnheader').filter({ hasText: 'Meet Cute' })).toBeVisible()
   await expect(grid.getByRole('rowheader').filter({ hasText: 'Discovery' })).toBeVisible()
   await expect.poll(async () => {
     const folder = (await project(page.request, info.slug)).folders.find(folder => folder.path === 'Characters')
-    return folder ? { threads: folder.threads, axis: folder.threadAxis } : null
-  }).toEqual({ threads: [race.document.id, cute.document.id], axis: 'columns' })
+    return folder ? { rows: folder.rows, columns: folder.columns, axis: folder.axis } : null
+  }).toEqual({ rows: [race.document.id, cute.document.id], columns: [], axis: 'columns' })
   await page.screenshot({ path: '.test-data/threads.png', fullPage: true })
   await page.reload()
   await chooseSection(page, 'Characters')
-  await page.getByRole('tab', { name: 'Threads', exact: true }).click()
-  await grid.getByRole('button', { name: 'Remove Meet Cute from this view', exact: true }).click()
+  await page.getByRole('tab', { name: 'Grid', exact: true }).click()
+  await grid.getByRole('button', { name: 'Remove Meet Cute row', exact: true }).click()
   await expect(grid.getByRole('columnheader').filter({ hasText: 'Meet Cute' })).toBeHidden()
   await expect(grid.getByRole('columnheader').filter({ hasText: 'Race' })).toBeVisible()
   await grid.getByRole('button', { name: 'Open Nested point', exact: true }).click()
   await page.getByRole('button', { name: 'Details', exact: true }).click()
-  await expect(page.getByRole('combobox', { name: 'Threads', exact: true })).toContainText('Race')
+  await expect(page.getByRole('combobox', { name: 'Links', exact: true })).toContainText('Race')
   await closeDialog(page)
   await editor(page).fill('A document on a thread.')
   await expect.poll(() => readFile(path.resolve('.test-data/workspace', info.slug, nested.document.path), 'utf8')).toContain('A document on a thread.')
@@ -190,12 +209,12 @@ test('folder stacks keep the view, pins persist, named documents open and empty 
   await chooseSection(page, 'Manuscript/Part')
   await expect(editor(page)).toContainText('Folder introduction.')
   await chooseSection(page, 'Notes')
-  await page.getByRole('tab', { name: 'Threads', exact: true }).click()
+  await page.getByRole('tab', { name: 'Grid', exact: true }).click()
   await page.getByRole('button', { name: 'Pin view for this folder' }).click()
-  await expect.poll(async () => (await project(page.request, info.slug)).folders.find(folder => folder.path === 'Notes')?.pinnedView).toBe('threads')
+  await expect.poll(async () => (await project(page.request, info.slug)).folders.find(folder => folder.path === 'Notes')?.pinnedView).toBe('grid')
   await page.reload()
   await chooseSection(page, 'Notes')
-  await expect(page.getByRole('tab', { name: 'Threads', exact: true })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('tab', { name: 'Grid', exact: true })).toHaveAttribute('aria-selected', 'true')
   await newFolder(page, 'Empty')
   await chooseSection(page, 'Notes/Empty')
   await page.getByRole('button', { name: 'Remove empty folder' }).click()
@@ -207,7 +226,7 @@ test('folder stacks keep the view, pins persist, named documents open and empty 
   await expect(page.locator('aside').getByRole('button', { name: 'Folder Custom', exact: true })).toBeVisible()
 })
 
-test('offline reload preserves edits, pins, thread rows and thread membership', async ({ page, context }) => {
+test('offline reload preserves edits, pins, grid rows and links', async ({ page, context }) => {
   const info = await createProject(page.request)
   const original = await createDoc(page.request, info.slug, 'Offline scene')
   await page.goto(projectUrl(info.slug))
@@ -224,10 +243,10 @@ test('offline reload preserves edits, pins, thread rows and thread membership', 
   await chooseSection(page, 'Threads')
   await newDocument(page, 'thread', 'Offline thread')
   await chooseSection(page, 'Manuscript')
-  await page.getByRole('tab', { name: 'Threads', exact: true }).click()
+  await page.getByRole('tab', { name: 'Grid', exact: true }).click()
   await page.getByRole('button', { name: 'Pin view for this folder' }).click()
-  await page.getByRole('combobox', { name: 'Add thread', exact: true }).click()
-  await page.getByRole('option', { name: 'Offline thread', exact: true }).click()
+  await page.getByRole('combobox', { name: 'Add row', exact: true }).click()
+  await page.getByRole('option', { name: 'Offline thread · Thread', exact: true }).click()
   await page.getByRole('button', { name: 'Add Offline scene to Offline thread', exact: true }).click()
   const on = page.getByRole('button', { name: 'Remove Offline scene from Offline thread', exact: true })
   await expect(on).toBeVisible()
@@ -240,7 +259,7 @@ test('offline reload preserves edits, pins, thread rows and thread membership', 
     const thread = current.documents.find(doc => doc.title === 'Offline thread')
     const folder = current.folders.find(folder => folder.path === 'Manuscript')
     const scene = current.documents.find(doc => doc.id === original.document.id)
-    return thread && folder && scene ? { row: folder.threads.includes(thread.id), on: scene.threads.includes(thread.id), path: thread.path } : null
+    return thread && folder && scene ? { row: folder.rows.includes(thread.id), on: scene.links.includes(thread.id) && thread.links.includes(scene.id), path: thread.path } : null
   }, { timeout: 20000 }).toEqual({ row: true, on: true, path: 'Threads/Offline thread.md' })
   await expect.poll(() => readFile(filePath(info.slug, original), 'utf8')).toContain('Written with no connection.')
 })

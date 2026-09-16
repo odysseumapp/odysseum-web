@@ -1,4 +1,4 @@
-import type { DocumentSummary, FolderSummary, Project } from '../models'
+import type { DocumentKind, DocumentSummary, FolderSummary, Project } from '../models'
 
 export const defaultFolders = ['Manuscript', 'Characters', 'Locations', 'Threads', 'Notes']
 /** Created with every project so a manuscript has somewhere to start. */
@@ -21,12 +21,12 @@ export function folderIcon(path: string) {
 export const parentPath = (path: string) => path.split('/').slice(0, -1).join('/')
 export const folderFor = (path: string, title = ''): FolderSummary => ({
   id: `folder:${path}`, path, name: path.split('/').at(-1) || title, parent: path === '' ? null : parentPath(path),
-  pinnedView: null, itemOrder: [], threads: [], threadAxis: null,
+  pinnedView: null, itemOrder: [], rows: [], columns: [], axis: null,
 })
 
 /** Also handles older browser mirrors and folders introduced by a pending document creation. */
 export function completeFolders(folders: FolderSummary[] | undefined, documents: DocumentSummary[], title: string) {
-  const result = new Map((folders ?? []).map(folder => [folder.path, { ...folder, itemOrder: [...folder.itemOrder], threads: [...(folder.threads ?? [])], threadAxis: folder.threadAxis ?? null }]))
+  const result = new Map((folders ?? []).map(folder => [folder.path, { ...folder, itemOrder: [...folder.itemOrder], rows: [...(folder.rows ?? [])], columns: [...(folder.columns ?? [])], axis: folder.axis ?? null }]))
   const add = (path: string) => {
     if (!result.has(path)) result.set(path, folderFor(path, title))
     if (path) add(parentPath(path))
@@ -61,10 +61,30 @@ export function descendantDocuments(project: Project, path: string): DocumentSum
   return folderItems(project, path).flatMap(item => item.document ? [item.document] : descendantDocuments(project, item.folder.path))
 }
 
-/** The project's threads: documents anywhere in the Threads folder, in tree order. */
-export function threadDocuments(project: Project) {
-  return project.folders.filter(folder => folder.parent === '' && folder.name.toLocaleLowerCase() === 'threads')
-    .flatMap(folder => descendantDocuments(project, folder.path)).filter(doc => doc.kind === 'thread')
+export const kindOrder: DocumentKind[] = ['thread', 'character', 'location', 'scene', 'note']
+export const kindLabels: Record<DocumentKind, string> = { thread: 'Thread', character: 'Character', location: 'Location', scene: 'Scene', note: 'Note' }
+export const kindIcons: Record<DocumentKind, string> = { thread: 'i-lucide-git-branch', character: 'i-lucide-user-round', location: 'i-lucide-map-pin', scene: 'i-lucide-file-text', note: 'i-lucide-sticky-note' }
+
+/** Links are undirected: either side listing the other counts. */
+export const linked = (a: DocumentSummary, b: DocumentSummary) => a.id !== b.id && (a.links.includes(b.id) || b.links.includes(a.id))
+/** Every document linked to `id`, in tree order. */
+export function linkedDocuments(project: Project, id: string) {
+  const own = project.documents.find(doc => doc.id === id)?.links ?? []
+  return descendantDocuments(project, '').filter(doc => doc.id !== id && (own.includes(doc.id) || doc.links.includes(id)))
+}
+/** Every document but `except`: threads first, then characters, locations, scenes and notes, each in tree order. */
+export function documentChoices(project: Project, except?: string) {
+  const ordered = descendantDocuments(project, '')
+  return kindOrder.flatMap(kind => ordered.filter(doc => doc.kind === kind && doc.id !== except))
+}
+/** A grid column key: a document, a folder as one column, or `folderId/*` for every document under it in order. */
+export function resolveColumn(project: Project, key: string): FolderItem[] {
+  const each = key.endsWith('/*')
+  const id = each ? key.slice(0, -2) : key
+  const folder = project.folders.find(item => item.id === id)
+  if (folder) return each ? descendantDocuments(project, folder.path).map(doc => ({ key: doc.id, title: doc.title, document: doc })) : [{ key: `folder:${folder.id}`, title: folder.name, folder }]
+  const doc = project.documents.find(item => item.id === id)
+  return doc ? [{ key: doc.id, title: doc.title, document: doc }] : []
 }
 
 export function folderDocument(project: Project, folder: FolderSummary) {
