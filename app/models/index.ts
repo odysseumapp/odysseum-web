@@ -10,7 +10,10 @@ export interface DocumentSummary {
 }
 export interface DocumentContent { document: DocumentSummary; content: string }
 export interface ProjectSettings { title: string; wordGoal: number; defaultSceneWordGoal: number }
-export interface Project { id: string; settings: ProjectSettings; revision: string; documents: DocumentSummary[]; warning: string | null }
+export type FolderView = 'write' | 'board' | 'outline' | 'threads'
+export interface FolderLayout { pinnedView: FolderView | null; itemOrder: string[]; positions: Record<string, number> }
+export interface FolderSummary extends FolderLayout { id: string; path: string; name: string; parent: string | null }
+export interface Project { id: string; settings: ProjectSettings; revision: string; documents: DocumentSummary[]; folders: FolderSummary[]; warning: string | null }
 export interface ProjectInfo { slug: string; title: string; id: string; lastModified: string }
 export interface ApiCollection<T> { totalItems: number; items: T[] }
 export interface Snapshot { id: string; created: string; wordCount: number }

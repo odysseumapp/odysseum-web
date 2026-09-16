@@ -6,15 +6,6 @@ const { project, active, selectedId } = useWorkspace()
 const choices = (kind: string) => project.value?.documents.filter(doc => doc.kind === kind).map(doc => ({ label: doc.title, value: doc.id })) ?? []
 const characters = computed(() => choices('character'))
 const locations = computed(() => choices('location'))
-const arcs = computed(() => choices('arc'))
-const arcIds = computed({
-  get: () => Object.keys(props.fields.arcPositions),
-  set(ids: string[]) {
-    props.fields.arcPositions = Object.fromEntries(ids.map(id => [id, props.fields.arcPositions[id] ?? Math.min(10000,
-      Math.floor(Math.max(-1, ...(project.value?.documents ?? []).filter(doc => doc.kind === 'beat').map(doc => doc.arcPositions?.[id] ?? -1))) + 1)]))
-    emit('edit')
-  },
-})
 const appearances = computed(() => project.value?.documents.filter(doc => doc.kind === 'scene' &&
   (active.value?.document.kind === 'location' ? doc.locations : doc.characters).includes(selectedId.value)) ?? [])
 </script>
@@ -31,7 +22,6 @@ const appearances = computed(() => project.value?.documents.filter(doc => doc.ki
       <UFormField label="Locations"><USelect v-model="fields.locations" :items="locations" multiple class="w-full" placeholder="Select locations" @update:model-value="emit('edit')" /></UFormField>
       <UFormField label="Scene word goal"><UInput v-model.number="fields.wordGoal" type="number" min="0" max="10000000" class="w-full" @update:model-value="emit('edit')" /></UFormField>
     </template>
-    <UFormField v-if="active.document.kind === 'beat'" label="Story arcs"><USelect v-model="arcIds" :items="arcs" multiple class="w-full" placeholder="Select arcs" /></UFormField>
     <div v-if="active.document.kind === 'character' || active.document.kind === 'location'" class="space-y-2">
       <h3 class="text-sm font-medium">Appears in</h3>
       <UButton v-for="doc in appearances" :key="doc.id" color="neutral" variant="link" block class="justify-start" @click="emit('open', doc)">{{ doc.title }}</UButton>

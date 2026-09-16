@@ -1,4 +1,4 @@
-import type { DocumentContent, DocumentSummary, MetadataFields, Project, ProjectInfo, ProjectSettings, Snapshot } from '../models'
+import type { DocumentContent, DocumentSummary, FolderLayout, MetadataFields, Project, ProjectInfo, ProjectSettings, Snapshot } from '../models'
 
 /** The server's copy of a project as of the last successful sync. */
 export interface MirroredProject { slug: string; project: Project; syncedAt: string }
@@ -24,6 +24,9 @@ export type LocalOp =
   | { type: 'move'; id: string; path: string }
   | { type: 'order'; ids: string[] }
   | { type: 'settings'; settings: ProjectSettings }
+  | { type: 'createFolder'; path: string }
+  | { type: 'removeFolder'; path: string }
+  | { type: 'folderLayout'; path: string; patch: Partial<FolderLayout> }
 export interface PendingOp { seq?: number; slug: string; op: LocalOp; updated: string }
 
 /** Version history fetched while online, kept so it can be read offline. */
@@ -76,6 +79,10 @@ export function renameInOp(op: LocalOp, from: string, to: string): LocalOp {
       return op.id === from ? { ...renamed, id: to } : renamed
     }
     case 'order': return { ...op, ids: op.ids.map(id => id === from ? to : id) }
+    case 'folderLayout': return { ...op, patch: { ...op.patch,
+      ...(op.patch.itemOrder ? { itemOrder: op.patch.itemOrder.map(id => id === from ? to : id) } : {}),
+      ...(op.patch.positions ? { positions: Object.fromEntries(Object.entries(op.patch.positions).map(([id, value]) => [id === from ? to : id, value])) } : {}),
+    } }
     default: return op
   }
 }

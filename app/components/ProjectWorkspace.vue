@@ -1,21 +1,21 @@
 <script setup lang="ts">
-import { countWords, type DocumentSummary } from '~/models'
-import { metadataOf } from '~/composables/useDocumentDetails'
+import { countWords, type DocumentSummary, type FolderSummary, type FolderView } from '~/models'
+import { folderDocument, folderItems, parentPath, type FolderItem } from '~/services/FolderStructure'
 
 const workspace = useWorkspace()
 const { project, active, selectedId, sync, notice, passwordRequired } = workspace
-const { details, saving, edit: editDetails, reset, save: saveDetails, place } = useDocumentDetails()
+const { details, saving, edit: editDetails, reset, save: saveDetails } = useDocumentDetails()
 const { busy, error, run } = useTask()
-const sections = [
-  { label: 'Manuscript', value: 'scene', folder: 'Manuscript' },
-  { label: 'Notes', value: 'note', folder: 'Notes' },
-  { label: 'Characters', value: 'character', folder: 'Characters' },
-  { label: 'Locations', value: 'location', folder: 'Locations' },
-  { label: 'Arcs', value: 'arc', folder: 'Arcs' },
-]
-const section = ref('scene')
-const currentSection = computed(() => sections.find(item => item.value === section.value)!)
-const view = ref('write')
+const folderPath = ref('Manuscript')
+const currentFolder = computed(() => project.value?.folders.find(folder => folder.path === folderPath.value))
+const items = computed(() => project.value ? folderItems(project.value, folderPath.value) : [])
+const view = ref<FolderView>('write')
+const canRemoveFolder = computed(() => !!folderPath.value && !items.value.length)
+const breadcrumbs = computed(() => ['', ...folderPath.value.split('/').filter(Boolean).map((_, index, parts) => parts.slice(0, index + 1).join('/'))])
+const folderOpen = ref(false)
+const folderParent = ref('')
+const createTarget = ref('')
+let keepCollection = false
 const focus = ref(false)
 const source = ref(false)
 const reading = ref(false)
@@ -30,9 +30,6 @@ const moveOpen = ref(false)
 const conflictOpen = ref(false)
 const editor = ref<{ format: (type: string) => void }>()
 const rendered = ref('')
-const documents = computed(() => project.value?.documents.filter(doc => section.value === 'arc' ? doc.kind === 'arc' || doc.kind === 'beat' : doc.kind === section.value) ?? [])
-const arcs = computed(() => project.value?.documents.filter(doc => doc.kind === 'arc') ?? [])
-const beats = computed(() => project.value?.documents.filter(doc => doc.kind === 'beat') ?? [])
 const words = computed(() => countWords(active.value?.content ?? ''))
 const totalWords = computed(() => project.value?.documents.filter(doc => doc.kind === 'scene').reduce((sum, doc) => sum + (doc.id === selectedId.value ? words.value : doc.wordCount), 0) ?? 0)
 const savedState = computed(() => {
@@ -45,7 +42,7 @@ const tabs = computed(() => [
   { label: 'Write', value: 'write', icon: 'i-lucide-file-text' },
   { label: 'Corkboard', value: 'board', icon: 'i-lucide-layout-grid' },
   { label: 'Outline', value: 'outline', icon: 'i-lucide-list' },
-  ...(section.value === 'arc' ? [{ label: 'Arcs', value: 'arcs', icon: 'i-lucide-git-branch' }] : []),
+  { label: 'Threads', value: 'threads', icon: 'i-lucide-git-branch' },
 ])
 const formatting = [
   { type: 'undo', label: 'Undo', icon: 'i-lucide-undo-2' }, { type: 'redo', label: 'Redo', icon: 'i-lucide-redo-2' },
@@ -60,37 +57,60 @@ watch([reading, () => active.value?.content], async ([show, content]) => {
   const { default: MarkdownIt } = await import('markdown-it')
   if (generation === renderGeneration) rendered.value = new MarkdownIt({ html: false, linkify: true }).render(content ?? '')
 })
-watch(section, value => { if (value === 'arc') view.value = 'arcs'; else if (view.value === 'arcs') view.value = 'write' })
-watch(() => active.value?.document.kind, kind => { if (kind) section.value = kind === 'beat' ? 'arc' : kind })
+watch(() => project.value?.folders, folders => {
+  if (folders && !folders.some(folder => folder.path === folderPath.value)) folderPath.value = ''
+}, { immediate: true })
+watch(() => active.value?.document.folder, path => { if (path !== undefined && view.value === 'write') folderPath.value = path }, { immediate: true })
 
 async function select(doc: DocumentSummary) {
-  section.value = doc.kind === 'beat' ? 'arc' : doc.kind
-  await nextTick()
+  folderPath.value = doc.folder
   view.value = 'write'
   mobileSidebar.value = false
   await run(() => workspace.open(doc.id))
 }
 function created(doc: DocumentSummary) {
-  if (doc.kind === 'arc') { section.value = 'arc'; view.value = 'arcs' }
-  else void select(doc)
+  if (!keepCollection) void select(doc)
 }
-async function createBeat(arc: string, title: string, position: number) {
-  await run(async () => {
-    const beat = await workspace.create(title, 'Beats')
-    const base = metadataOf(beat)
-    await workspace.saveDetails(beat.id, { ...base, arcPositions: { [arc]: position } }, base)
-  })
+function newDocument(path = folderPath.value, keep = false) {
+  createTarget.value = path
+  keepCollection = keep
+  createOpen.value = true
 }
-async function reorder(from: string, to: string) {
+function newFolder(parent = folderPath.value) { folderParent.value = parent; folderOpen.value = true }
+async function openFolder(folder: FolderSummary, preserveView = false) {
+  folderPath.value = folder.path
+  mobileSidebar.value = false
+  if (preserveView) return
+  const index = project.value && folderDocument(project.value, folder)
+  if (index) return select(index)
+  view.value = folder.pinnedView ?? 'board'
+  if (view.value === 'write') {
+    const first = project.value?.documents.find(doc => doc.folder === folder.path)
+    if (first) await select(first)
+  }
+}
+function navigate(path: string) {
+  const folder = project.value?.folders.find(folder => folder.path === path)
+  if (folder) void openFolder(folder, true)
+}
+function openItem(item: FolderItem) { if (item.folder) void openFolder(item.folder, true); else void select(item.document) }
+async function reorder(path: string, from: string, to: string) {
   if (!project.value || !from || from === to) return
-  const ids = project.value.documents.map(doc => doc.id)
+  const ids = folderItems(project.value, path).map(item => item.key)
   const sourceIndex = ids.indexOf(from)
   const targetIndex = ids.indexOf(to)
   if (sourceIndex < 0 || targetIndex < 0) return
   ids.splice(sourceIndex, 1)
   ids.splice(targetIndex, 0, from)
-  await run(() => workspace.reorder(ids))
+  await run(() => workspace.saveFolderLayout(path, { itemOrder: ids }))
 }
+const place = (path: string, key: string, position: number) => run(() => workspace.saveFolderLayout(path, { positions: { [key]: position } }))
+const pin = () => run(() => workspace.saveFolderLayout(folderPath.value, { pinnedView: currentFolder.value?.pinnedView === view.value ? null : view.value }))
+const removeFolder = () => run(async () => {
+  const path = folderPath.value
+  await workspace.removeFolder(path)
+  folderPath.value = parentPath(path)
+})
 function shortcut(event: KeyboardEvent) {
   if (event.defaultPrevented) return
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); searchOpen.value = true }
@@ -120,19 +140,25 @@ onBeforeUnmount(() => window.removeEventListener('keydown', shortcut))
     <UAlert v-if="error" color="error" :description="error" :close="{ onClick: () => error = '' }" role="alert" />
     <div class="flex flex-1 min-w-0">
       <aside v-if="!focus" class="hidden md:block w-72 shrink-0 border-r border-default p-3 overflow-y-auto max-h-[calc(100dvh-4rem)]">
-        <USelect v-model="section" :items="sections" aria-label="Section" class="w-full mb-3" />
-        <UButton icon="i-lucide-plus" variant="soft" block class="mb-4" @click="createOpen = true">New {{ section }}</UButton>
-        <DocumentSidebar :documents="documents" :selected-id="selectedId" :section="currentSection.label" @select="select" @reorder="reorder" />
+        <div class="flex items-center justify-between mb-3"><UButton color="neutral" variant="ghost" icon="i-lucide-folders" @click="openFolder(project.folders.find(folder => folder.path === '')!)">All folders</UButton><UButton color="neutral" variant="ghost" icon="i-lucide-folder-plus" aria-label="New top-level folder" @click="newFolder('')" /></div>
+        <FolderTree :project="project" path="" :selected-folder="folderPath" :selected-id="selectedId" @folder="openFolder" @document="select" @reorder="reorder" />
         <div class="mt-6 space-y-2"><p class="text-xs text-muted">{{ totalWords.toLocaleString() }} / {{ project.settings.wordGoal.toLocaleString() }} words</p><UProgress :model-value="Math.min(totalWords, project.settings.wordGoal || 1)" :max="project.settings.wordGoal || 1" /></div>
       </aside>
       <main class="flex-1 min-w-0 p-4 sm:p-6 space-y-4">
         <div v-if="!focus" class="flex flex-wrap items-center justify-between gap-2">
           <UButton color="neutral" variant="outline" icon="i-lucide-panel-left" class="md:hidden" @click="mobileSidebar = true">Documents</UButton>
           <UTabs v-model="view" :items="tabs" :content="false" class="max-w-full" />
+          <UButton color="neutral" :variant="currentFolder?.pinnedView === view ? 'soft' : 'ghost'" icon="i-lucide-pin" :aria-pressed="currentFolder?.pinnedView === view" :aria-label="currentFolder?.pinnedView === view ? 'Unpin view' : 'Pin view for this folder'" @click="pin" />
         </div>
-        <ArcTimelines v-if="view === 'arcs' && !focus" :arcs="arcs" :beats="beats" :busy="busy" @create="createOpen = true" @open="select" @create-beat="createBeat" @place="(doc, arc, position) => run(() => place(doc, arc, position))" />
-        <DocumentCollection v-else-if="(view === 'board' || view === 'outline') && !focus" :documents="documents" :view="view" @select="select" />
-        <template v-else-if="active">
+        <div v-if="!focus" class="flex flex-wrap items-center gap-2">
+          <nav aria-label="Folder path" class="flex flex-wrap items-center gap-1 mr-auto"><template v-for="(path, index) in breadcrumbs" :key="path"><UIcon v-if="index" name="i-lucide-chevron-right" class="size-3 text-muted" /><UButton color="neutral" variant="link" @click="navigate(path)">{{ path.split('/').at(-1) || project.settings.title }}</UButton></template></nav>
+          <UButton icon="i-lucide-plus" variant="soft" @click="newDocument()">New document</UButton>
+          <UButton icon="i-lucide-folder-plus" color="neutral" variant="outline" @click="newFolder()">New folder</UButton>
+          <UButton v-if="folderPath" icon="i-lucide-folder-minus" color="neutral" variant="ghost" :disabled="!canRemoveFolder || busy" aria-label="Remove empty folder" title="Only empty folders can be removed" @click="removeFolder" />
+        </div>
+        <TimelineView v-if="view === 'threads' && !focus" :project="project" :path="folderPath" @open="openItem" @place="place" @create-document="path => newDocument(path, true)" />
+        <CollectionView v-else-if="(view === 'board' || view === 'outline') && !focus" :items="items" :path="folderPath" :view="view" @open="openItem" @reorder="reorder" />
+        <template v-else-if="active && (active.document.folder === folderPath || focus)">
           <header class="flex flex-wrap items-center justify-between gap-3"><h1 class="text-xl font-semibold break-words">{{ active.document.title }}</h1><UButton v-if="!focus" color="neutral" variant="outline" icon="i-lucide-panel-right" @click="inspector = true">Details</UButton></header>
           <div class="flex flex-wrap items-center gap-1" aria-label="Editor toolbar">
             <template v-if="!reading"><UButton v-for="action in formatting" :key="action.type" color="neutral" variant="ghost" :icon="action.icon" :aria-label="action.label" :title="action.label" @click="editor?.format(action.type)" /></template>
@@ -150,13 +176,14 @@ onBeforeUnmount(() => window.removeEventListener('keydown', shortcut))
         <p v-else class="text-muted py-12">Select a document or create one to get started.</p>
       </main>
     </div>
-    <USlideover v-model:open="mobileSidebar" side="left" title="Documents" description="Choose a section and document.">
-      <template #body><USelect v-model="section" :items="sections" aria-label="Section" class="w-full mb-3" /><UButton icon="i-lucide-plus" variant="soft" block class="mb-4" @click="mobileSidebar = false; createOpen = true">New {{ section }}</UButton><DocumentSidebar :documents="documents" :selected-id="selectedId" :section="currentSection.label" @select="select" @reorder="reorder" /></template>
+    <USlideover v-model:open="mobileSidebar" side="left" title="Documents" description="Browse every folder and document.">
+      <template #body><div class="flex justify-between mb-3"><UButton color="neutral" variant="ghost" @click="openFolder(project.folders.find(folder => folder.path === '')!)">All folders</UButton><UButton icon="i-lucide-folder-plus" aria-label="New top-level folder" @click="mobileSidebar = false; newFolder('')" /></div><FolderTree :project="project" path="" :selected-folder="folderPath" :selected-id="selectedId" @folder="openFolder" @document="select" @reorder="reorder" /></template>
     </USlideover>
     <USlideover v-model:open="inspector" title="Details" description="Edit document metadata and links.">
       <template #body><DocumentDetails v-if="details" :fields="details.fields" :dirty="details.dirty" :saving="saving" @edit="editDetails" @reset="reset" @save="saveDetails" @open="doc => { inspector = false; select(doc) }" @history="inspector = false; historyOpen = true" @move="inspector = false; moveOpen = true" /></template>
     </USlideover>
-    <CreateDocumentModal v-model:open="createOpen" :kind="section" :folder="currentSection.folder" @created="created" />
+    <CreateDocumentModal v-model:open="createOpen" kind="document" :folder="createTarget" @created="created" />
+    <CreateFolderModal v-model:open="folderOpen" :parent="folderParent" />
     <ProjectSettingsModal v-model:open="settingsOpen" />
     <DocumentSearchModal v-model:open="searchOpen" @select="select" />
     <DocumentHistoryModal v-model:open="historyOpen" @restored="view = 'write'; reading = false" />

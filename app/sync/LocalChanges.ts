@@ -1,4 +1,4 @@
-import type { DocumentSummary, MetadataFields, ProjectSettings } from '../models'
+import type { DocumentSummary, FolderLayout, MetadataFields, ProjectSettings } from '../models'
 import { pathFor } from '../services/FileNames'
 import type { LocalOp, PendingOp } from '../storage'
 import type { ILocalChanges } from './ILocalChanges'
@@ -58,6 +58,32 @@ export class LocalChanges implements ILocalChanges {
         return
       }
       await this.record({ type: 'settings', settings }, await this.find(op => op.type === 'settings'))
+    })
+  }
+
+  async createFolder(path: string) {
+    return this.context.mutations.run(async () => {
+      const view = await publishView(this.context)
+      if (!path || path.split('/').some(part => !part.trim() || part.startsWith('.') || /[\\:*?"<>|]/.test(part) || /[. ]$/.test(part))) throw new Error('Use a valid folder name.')
+      if (view?.folders.some(folder => folder.path.toLocaleLowerCase() === path.toLocaleLowerCase())) throw new Error('That folder already exists.')
+      await this.record({ type: 'createFolder', path })
+    })
+  }
+
+  async removeFolder(path: string) {
+    return this.context.mutations.run(async () => {
+      const view = await publishView(this.context)
+      if (!path || view?.documents.some(doc => doc.folder === path || doc.folder.startsWith(path + '/'))
+        || view?.folders.some(folder => folder.parent === path)) throw new Error('Only empty folders can be removed.')
+      await this.record({ type: 'removeFolder', path })
+    })
+  }
+
+  async saveFolderLayout(path: string, patch: Partial<FolderLayout>) {
+    return this.context.mutations.run(async () => {
+      const resolved = resolveOperation(this.context, { type: 'folderLayout', path, patch }) as Extract<LocalOp, { type: 'folderLayout' }>
+      // Keep operations in order: a later layout may reference a document created between edits.
+      await this.record(resolved)
     })
   }
 

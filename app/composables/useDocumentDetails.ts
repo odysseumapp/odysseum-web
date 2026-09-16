@@ -78,23 +78,5 @@ export function useDocumentDetails() {
     } catch (ex) { workspace.showError(ex) }
     finally { saving.value = false }
   }
-  async function place(doc: DocumentSummary, arc: string, position: number | null) {
-    const current = project.value?.documents.find(item => item.id === doc.id)
-    if (!current || current.kind !== 'beat') return
-    const patch = (positions: Record<string, number>) => {
-      const next = { ...positions }
-      if (position === null) delete next[arc]
-      else next[arc] = position
-      return next
-    }
-    const base = metadataOf(current)
-    await workspace.saveDetails(doc.id, { ...base, arcPositions: patch(base.arcPositions) }, base)
-    const draft = drafts.get(doc.id)
-    if (draft) {
-      draft.fields.arcPositions = patch(draft.fields.arcPositions)
-      draft.base.arcPositions = patch(draft.base.arcPositions)
-      persist(doc.id, draft)
-    }
-  }
-  return { details, saving, edit, reset, save, place }
+  return { details, saving, edit, reset, save }
 }

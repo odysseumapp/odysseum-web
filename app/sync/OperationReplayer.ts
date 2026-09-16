@@ -3,6 +3,7 @@ import type { DocumentSummary, MetadataFields } from '../models'
 import type { LocalOp, PendingEdit, PendingOp } from '../storage'
 import type { SyncContext } from './SyncContext'
 import { publishView } from './ProjectView'
+import { folderItems } from '../services/FolderStructure'
 
 const fields = (doc: DocumentSummary | MetadataFields): MetadataFields =>
   ({ title: doc.title, synopsis: doc.synopsis, notes: doc.notes, status: doc.status, wordGoal: doc.wordGoal, characters: [...(doc.characters ?? [])], locations: [...(doc.locations ?? [])], arcPositions: Object.fromEntries(Object.entries(doc.arcPositions ?? {}).sort(([a], [b]) => a.localeCompare(b))) })
@@ -53,8 +54,27 @@ export class OperationReplayer {
           listener.onProjectRenamed(created.slug)
         }
         const project = await api.getProject(this.context.slug)
-        if (!same(project.settings as never, op.settings as never) || project.settings.defaultSceneWordGoal !== op.settings.defaultSceneWordGoal)
-          await api.updateSettings(this.context.slug, op.settings, project.revision)
+        const updated = JSON.stringify(project.settings) !== JSON.stringify(op.settings)
+          ? await api.updateSettings(this.context.slug, op.settings, project.revision) : project
+        await mirror.putProject({ slug: this.context.slug, project: updated, syncedAt: new Date().toISOString() })
+        break
+      }
+      case 'createFolder': case 'removeFolder': case 'folderLayout': {
+        const slug = this.context.slug
+        const project = await api.getProject(slug)
+        let updated
+        if (op.type === 'createFolder') updated = await api.createFolder(slug, op.path, project.revision)
+        else if (op.type === 'removeFolder') updated = await api.removeFolder(slug, op.path, project.revision)
+        else {
+          const folder = project.folders.find(item => item.path === op.path)
+          if (!folder) throw new ApiError(404, 'The folder no longer exists, so its view could not be saved.')
+          const keys = new Set(folderItems(project, op.path).map(item => item.key))
+          const layout = { ...folder, ...op.patch, positions: { ...folder.positions, ...op.patch.positions } }
+          layout.itemOrder = layout.itemOrder.filter(key => keys.has(key))
+          layout.positions = Object.fromEntries(Object.entries(layout.positions).filter(([key]) => keys.has(key)))
+          updated = await api.saveFolderLayout(slug, op.path, layout, project.revision)
+        }
+        await mirror.putProject({ slug, project: updated, syncedAt: new Date().toISOString() })
         break
       }
       case 'create': {

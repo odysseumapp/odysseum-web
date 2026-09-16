@@ -3,6 +3,7 @@ import { isOffline } from '../api/IApiClient'
 import type { ProjectInfo, SessionInfo } from '../models'
 import type { IMirrorStore } from '../storage'
 import { projectSlugFor } from './FileNames'
+import { defaultFolders, folderFor } from './FolderStructure'
 
 /** The list of projects and the creation of new ones; works from the local copy when the server is away. */
 export class WorkspaceLibrary {
@@ -46,7 +47,7 @@ export class WorkspaceLibrary {
     const slug = projectSlugFor(clean, new Set(existing.map(project => project.slug.toLowerCase())))
     const settings = { title: clean, wordGoal: 50000, defaultSceneWordGoal: 1000 }
     const info: ProjectInfo = { slug, title: clean, id: crypto.randomUUID(), lastModified: new Date().toISOString() }
-    await this.mirror.putProject({ slug, project: { id: info.id, settings, revision: '', documents: [], warning: null }, syncedAt: '' })
+    await this.mirror.putProject({ slug, project: { id: info.id, settings, revision: '', documents: [], folders: ['', ...defaultFolders].map(path => folderFor(path, clean)), warning: null }, syncedAt: '' })
     await this.mirror.putOp({ slug, op: { type: 'createProject', title: clean, settings }, updated: info.lastModified })
     await this.mirror.putProjects([...existing, info])
     return info

@@ -1,16 +1,30 @@
 import { countWords, type DocumentSummary, type Project, type ProjectSettings } from '../models'
 import { kindFor } from '../services/FileNames'
+import { completeFolders, folderFor } from '../services/FolderStructure'
 import type { LocalOp, MirroredDocument, PendingOp } from '../storage'
 import type { SyncContext } from './SyncContext'
 
 /** The server's copy with every queued local change applied, in the order it was made: what the writer should see. */
 export function overlay(server: Project, ops: PendingOp[], documents: Map<string, MirroredDocument>): Project {
   let settings: ProjectSettings = server.settings
+  let folders = completeFolders(server.folders, server.documents, settings.title)
   let list: DocumentSummary[] = server.documents.map(doc => ({ ...doc, characters: doc.characters ?? [], locations: doc.locations ?? [], arcPositions: { ...(doc.arcPositions ?? {}) } }))
   for (const { op } of ops) {
     switch (op.type) {
+      case 'createFolder':
+        if (!folders.some(folder => folder.path === op.path)) folders.push(folderFor(op.path))
+        break
+      case 'removeFolder':
+        folders = folders.filter(folder => folder.path !== op.path)
+        break
+      case 'folderLayout': {
+        const folder = folders.find(folder => folder.path === op.path)
+        if (folder) Object.assign(folder, op.patch, { positions: { ...folder.positions, ...op.patch.positions } })
+        break
+      }
       case 'create':
         if (!list.some(doc => doc.id === op.id)) list.push(documents.get(op.id)?.document ?? summaryFor(op, list, settings))
+        folders = completeFolders(folders, list, settings.title)
         break
       case 'metadata': {
         const doc = list.find(item => item.id === op.id)
@@ -20,6 +34,7 @@ export function overlay(server: Project, ops: PendingOp[], documents: Map<string
       case 'move': {
         const doc = list.find(item => item.id === op.id)
         if (doc) { doc.kind = kindFor(op.path); doc.path = op.path; doc.folder = op.path.split('/').slice(0, -1).join('/') }
+        folders = completeFolders(folders, list, settings.title)
         break
       }
       case 'order': {
@@ -34,7 +49,7 @@ export function overlay(server: Project, ops: PendingOp[], documents: Map<string
         break
     }
   }
-  return { ...server, settings, documents: list }
+  return { ...server, settings, documents: list, folders: completeFolders(folders, list, settings.title) }
 }
 
 /** The summary a scene created offline shows until the server has it. */

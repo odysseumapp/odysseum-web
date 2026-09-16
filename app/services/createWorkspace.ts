@@ -4,7 +4,7 @@ import { FetchApiClient } from '../api/FetchApiClient'
 import { OdysseumApi } from '../api/OdysseumApi'
 import { ApiError, OFFLINE_MESSAGE, isOffline } from '../api/IApiClient'
 import type { IOdysseumApi } from '../api/IOdysseumApi'
-import type { DocumentContent, DocumentSummary, MetadataFields, Project, ProjectInfo, ProjectSettings } from '../models'
+import type { DocumentContent, DocumentSummary, FolderLayout, MetadataFields, Project, ProjectInfo, ProjectSettings } from '../models'
 import { downloadText, exportMarkdown } from '../services/ManuscriptExport'
 import { searchManuscript } from '../services/ManuscriptSearch'
 import { ProjectSession } from '../services/ProjectSession'
@@ -63,6 +63,12 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
     return { ...doc, ...op.fields, id: op.id }
   }
 
+  function resolveProject(view: Project): Project {
+    return { ...view, documents: view.documents.map(resolveSummary), folders: view.folders.map(folder => ({ ...folder,
+      itemOrder: folder.itemOrder.map(resolveId), positions: Object.fromEntries(Object.entries(folder.positions).map(([id, value]) => [resolveId(id), value])),
+    })) }
+  }
+
   async function services() {
     mirror ??= await openMirrorStore()
     library ??= new WorkspaceLibrary(api, mirror)
@@ -101,7 +107,7 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
     return {
       onProject(view) {
         if (!current()) return
-        project.value = { ...view, documents: view.documents.map(resolveSummary) }
+        project.value = resolveProject(view)
         for (const summary of project.value.documents) {
           const buffer = buffers.get(summary.id)
           if (buffer) buffer.document = summary
@@ -112,7 +118,7 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
         if (!current()) return
         documentRenames.set(from, to)
         session?.engine.renameDocument(from, to)
-        if (project.value) project.value = { ...project.value, documents: project.value.documents.map(resolveSummary) }
+        if (project.value) project.value = resolveProject(project.value)
         const buffer = buffers.get(from)
         if (buffer) { buffers.delete(from); buffer.document = { ...buffer.document, id: to }; buffers.set(to, buffer) }
         if (selectedId.value === from) {
@@ -315,6 +321,19 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
     await session.changes.reorder(ids)
   }
 
+  async function createFolder(path: string) {
+    if (!session) throw new Error('Open a project first.')
+    await session.changes.createFolder(path)
+  }
+  async function removeFolder(path: string) {
+    if (!session) return
+    await session.changes.removeFolder(path)
+  }
+  async function saveFolderLayout(path: string, patch: Partial<FolderLayout>) {
+    if (!session) return
+    await session.changes.saveFolderLayout(path, plain(patch))
+  }
+
   async function updateSettings(settings: ProjectSettings) {
     if (!session) return
     await session.changes.updateSettings(plain(settings))
@@ -387,7 +406,7 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
 
   return {
     projects, slug, project, selectedId, active, error, notice, sync, connected, durable, authenticated, passwordRequired, loading, rejectedDetails, documentRenames,
-    dirty, edit, open, save, refresh, start, login, logout, create, saveDetails, move, reorder, updateSettings, search, exportManuscript,
+    dirty, edit, open, save, refresh, start, login, logout, create, saveDetails, move, reorder, createFolder, removeFolder, saveFolderLayout, updateSettings, search, exportManuscript,
     snapshots, snapshot, useDisk, keepMine, saveCopy, discard, showError, beforeUnload, stop, loadProjects, openProject, leaveProject, createProject,
   }
 }

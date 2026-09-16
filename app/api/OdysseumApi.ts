@@ -1,4 +1,4 @@
-import type { ApiCollection, DocumentContent, MetadataFields, Project, ProjectInfo, ProjectSettings, SearchResult, SessionInfo, Snapshot } from '../models'
+import type { ApiCollection, DocumentContent, FolderLayout, MetadataFields, Project, ProjectInfo, ProjectSettings, SearchResult, SessionInfo, Snapshot } from '../models'
 import type { IApiClient } from './IApiClient'
 import type { IOdysseumApi } from './IOdysseumApi'
 
@@ -15,6 +15,9 @@ export class OdysseumApi implements IOdysseumApi {
   async listProjects() { return (await this.client.request<ApiCollection<ProjectInfo>>('/projects')).items }
   createProject(title: string, wordGoal?: number) { return this.client.request<ProjectInfo>('/projects', 'POST', { title, wordGoal }) }
   getProject(slug: string) { return this.client.request<Project>(this.project(slug)) }
+  createFolder(slug: string, path: string, revision: string) { return this.client.request<Project>(`${this.project(slug)}/folders`, 'POST', { path, revision }) }
+  removeFolder(slug: string, path: string, revision: string) { return this.client.request<Project>(`${this.project(slug)}/folders`, 'DELETE', { path, revision }) }
+  saveFolderLayout(slug: string, path: string, layout: FolderLayout, revision: string) { return this.client.request<Project>(`${this.project(slug)}/folders/layout`, 'PUT', { path, ...layout, revision }) }
   updateSettings(slug: string, settings: ProjectSettings, revision: string) {
     return this.client.request<Project>(`${this.project(slug)}/settings`, 'PUT', { ...settings, revision })
   }
