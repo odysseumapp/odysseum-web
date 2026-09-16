@@ -21,12 +21,12 @@ export function folderIcon(path: string) {
 export const parentPath = (path: string) => path.split('/').slice(0, -1).join('/')
 export const folderFor = (path: string, title = ''): FolderSummary => ({
   id: `folder:${path}`, path, name: path.split('/').at(-1) || title, parent: path === '' ? null : parentPath(path),
-  pinnedView: null, itemOrder: [], rows: [], columns: [], axis: null,
+  pinnedView: null, itemOrder: [], gridFolder: null,
 })
 
 /** Also handles older browser mirrors and folders introduced by a pending document creation. */
 export function completeFolders(folders: FolderSummary[] | undefined, documents: DocumentSummary[], title: string) {
-  const result = new Map((folders ?? []).map(folder => [folder.path, { ...folder, itemOrder: [...folder.itemOrder], rows: [...(folder.rows ?? [])], columns: [...(folder.columns ?? [])], axis: folder.axis ?? null }]))
+  const result = new Map((folders ?? []).map(folder => [folder.path, { ...folder, itemOrder: [...folder.itemOrder], gridFolder: folder.gridFolder ?? null }]))
   const add = (path: string) => {
     if (!result.has(path)) result.set(path, folderFor(path, title))
     if (path) add(parentPath(path))
@@ -77,14 +77,16 @@ export function documentChoices(project: Project, except?: string) {
   const ordered = descendantDocuments(project, '')
   return kindOrder.flatMap(kind => ordered.filter(doc => doc.kind === kind && doc.id !== except))
 }
-/** A grid column key: a document, a folder as one column, or `folderId/*` for every document under it in order. */
-export function resolveColumn(project: Project, key: string): FolderItem[] {
-  const each = key.endsWith('/*')
-  const id = each ? key.slice(0, -2) : key
-  const folder = project.folders.find(item => item.id === id)
-  if (folder) return each ? descendantDocuments(project, folder.path).map(doc => ({ key: doc.id, title: doc.title, document: doc })) : [{ key: `folder:${folder.id}`, title: folder.name, folder }]
-  const doc = project.documents.find(item => item.id === id)
-  return doc ? [{ key: doc.id, title: doc.title, document: doc }] : []
+/** Whether `path` is `parent` or somewhere under it. */
+export const insideFolder = (path: string, parent: string) => parent === '' || path === parent || path.startsWith(`${parent}/`)
+/** The folder whose documents are the grid's columns: the chosen one, else Threads, else Manuscript, else any other folder. */
+export function gridColumnFolder(project: Project, path: string) {
+  const folder = project.folders.find(item => item.path === path)
+  const chosen = folder?.gridFolder ? project.folders.find(item => item.id === folder.gridFolder) : undefined
+  if (chosen) return chosen
+  const topLevel = (name: string) => project.folders.find(item => item.parent === '' && item.name.toLocaleLowerCase() === name)
+  return [topLevel('threads'), topLevel('manuscript'), ...project.folders.filter(item => item.parent === '')]
+    .find(item => item && !insideFolder(path, item.path))
 }
 
 export function folderDocument(project: Project, folder: FolderSummary) {

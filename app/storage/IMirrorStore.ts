@@ -81,8 +81,6 @@ export function renameInOp(op: LocalOp, from: string, to: string): LocalOp {
     case 'order': return { ...op, ids: op.ids.map(id => id === from ? to : id) }
     case 'folderLayout': return { ...op, patch: { ...op.patch,
       ...(op.patch.itemOrder ? { itemOrder: op.patch.itemOrder.map(id => id === from ? to : id) } : {}),
-      ...(op.patch.rows ? { rows: op.patch.rows.map(id => id === from ? to : id) } : {}),
-      ...(op.patch.columns ? { columns: op.patch.columns.map(key => key === from ? to : key) } : {}),
     } }
     default: return op
   }

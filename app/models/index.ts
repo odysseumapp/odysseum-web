@@ -12,10 +12,8 @@ export interface DocumentSummary {
 export interface DocumentContent { document: DocumentSummary; content: string }
 export interface ProjectSettings { title: string; wordGoal: number; defaultSceneWordGoal: number }
 export type FolderView = 'write' | 'board' | 'outline' | 'grid'
-export type GridAxis = 'rows' | 'columns'
-/** The folder's grid: `rows` are document ids; `columns` are document ids, folder ids, or `folderId/*` for every document
- * under that folder in order (empty means this folder's children); `axis` says which way the rows run (rows by default). */
-export interface FolderLayout { pinnedView: FolderView | null; itemOrder: string[]; rows: string[]; columns: string[]; axis: GridAxis | null }
+/** `gridFolder` is the id of the folder whose documents are the columns of this folder's grid; null picks a default. */
+export interface FolderLayout { pinnedView: FolderView | null; itemOrder: string[]; gridFolder: string | null }
 export interface FolderSummary extends FolderLayout { id: string; path: string; name: string; parent: string | null }
 export interface Project { id: string; settings: ProjectSettings; revision: string; documents: DocumentSummary[]; folders: FolderSummary[]; warning: string | null }
 export interface ProjectInfo { slug: string; title: string; id: string; lastModified: string }

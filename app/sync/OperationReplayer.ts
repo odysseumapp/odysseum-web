@@ -71,11 +71,8 @@ export class OperationReplayer {
           const keys = new Set(folderItems(project, op.path).map(item => item.key))
           const layout = { ...folder, ...op.patch }
           layout.itemOrder = layout.itemOrder.filter(key => keys.has(key))
-          // A row or column removed while offline is dropped from the grid rather than failing the whole layout.
-          const docs = new Set(project.documents.map(doc => doc.id))
-          const folders = new Set(project.folders.map(item => item.id))
-          layout.rows = layout.rows.filter(id => docs.has(id))
-          layout.columns = layout.columns.filter(key => key.endsWith('/*') ? folders.has(key.slice(0, -2)) : docs.has(key) || folders.has(key))
+          // A column folder removed while offline falls back to the default rather than failing the whole layout.
+          if (layout.gridFolder && !project.folders.some(item => item.id === layout.gridFolder)) layout.gridFolder = null
           updated = await api.saveFolderLayout(slug, op.path, layout, project.revision)
         }
         await mirror.putProject({ slug, project: updated, syncedAt: new Date().toISOString() })

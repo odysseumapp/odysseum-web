@@ -1,120 +1,91 @@
 <script setup lang="ts">
-import type { DocumentSummary, FolderLayout, FolderSummary, GridAxis, Project } from '~/models'
-import { descendantDocuments, documentChoices, folderItems, kindIcons, kindLabels, linked, resolveColumn, type FolderItem } from '~/services/FolderStructure'
+import type { DocumentSummary, FolderLayout, FolderSummary, Project } from '~/models'
+import { descendantDocuments, folderItems, gridColumnFolder, kindIcons, linked, type FolderItem } from '~/services/FolderStructure'
 const props = defineProps<{ project: Project; path: string }>()
 const emit = defineEmits<{ open: [item: FolderItem]; layout: [patch: Partial<FolderLayout>]; assign: [doc: DocumentSummary, links: string[]]; createDocument: [path: string] }>()
-/** One side of the grid: a row document, or a column item (with the layout key it came from), depending on the axis. */
-type Head = { row: DocumentSummary; item?: never; source?: never } | { item: FolderItem; source?: string; row?: never }
 const folder = computed(() => props.project.folders.find(item => item.path === props.path))
-const byId = computed(() => new Map(props.project.documents.map(doc => [doc.id, doc])))
-// Rows are whatever the writer added: threads, characters, locations… A row whose document is gone drops out until the layout is saved again.
-const rowDocs = computed(() => (folder.value?.rows ?? []).flatMap(id => { const doc = byId.value.get(id); return doc ? [doc] : [] }))
-const custom = computed(() => (folder.value?.columns.length ?? 0) > 0)
-const columnHeads = computed<Head[]>(() => custom.value
-  ? (folder.value?.columns ?? []).flatMap(source => resolveColumn(props.project, source).map(item => ({ item, source })))
-  : folderItems(props.project, props.path).map(item => ({ item })))
-const axis = computed<GridAxis>(() => folder.value?.axis ?? 'rows')
-const rows = computed<Head[]>(() => axis.value === 'rows' ? rowDocs.value.map(row => ({ row })) : columnHeads.value)
-const columns = computed<Head[]>(() => axis.value === 'rows' ? columnHeads.value : rowDocs.value.map(row => ({ row })))
-const keyOf = (head: Head) => head.row ? `row:${head.row.id}` : `${head.source ?? ''}:${head.item.key}`
-const cell = (a: Head, b: Head) => ({ row: (a.row ?? b.row)!, item: (a.item ?? b.item)! })
-const members = (item: FolderSummary, row: DocumentSummary) => descendantDocuments(props.project, item.path).filter(doc => linked(doc, row))
-const choice = (doc: DocumentSummary) => ({ label: `${doc.title} · ${kindLabels[doc.kind]}`, value: doc.id, icon: kindIcons[doc.kind] })
-const rowChoices = computed(() => documentChoices(props.project).filter(doc => !rowDocs.value.includes(doc)).map(choice))
-const columnChoices = computed(() => {
-  const taken = new Set(folder.value?.columns ?? [])
-  const folders = props.project.folders.filter(item => item.path).flatMap(item => [
-    { label: `${item.path} · folder`, value: item.id, icon: 'i-lucide-folder' },
-    { label: `${item.path} · each document`, value: `${item.id}/*`, icon: 'i-lucide-list' },
-  ])
-  return [...folders, ...documentChoices(props.project).map(choice)].filter(option => !taken.has(option.value))
+// Columns are every document of one other folder: Threads unless you are in it, then Manuscript.
+const columnFolder = computed(() => gridColumnFolder(props.project, props.path))
+const columns = computed(() => columnFolder.value ? descendantDocuments(props.project, columnFolder.value.path) : [])
+const folderChoices = computed(() => props.project.folders.filter(item => item.path && item.path !== props.path).map(item => ({ label: item.path, value: item.id })))
+/** Rows are this folder's documents in order; each subfolder is a group that collapses into a roll-up of its members. */
+type Row = { doc: DocumentSummary; depth: number; group?: never; members?: never } | { group: FolderSummary; depth: number; members: DocumentSummary[]; doc?: never }
+const collapsed = ref(new Set<string>())
+const rows = computed<Row[]>(() => {
+  const walk = (path: string, depth: number): Row[] => folderItems(props.project, path).flatMap(item => item.document
+    ? [{ doc: item.document, depth }]
+    : [{ group: item.folder, depth, members: descendantDocuments(props.project, item.folder.path) }, ...(collapsed.value.has(item.folder.path) ? [] : walk(item.folder.path, depth + 1))])
+  return walk(props.path, 0)
 })
-const picker = ref<{ folder: FolderSummary; row: DocumentSummary } | null>(null)
-const pickerOpen = computed({ get: () => !!picker.value, set: (open: boolean) => { if (!open) picker.value = null } })
-const choices = computed(() => picker.value ? descendantDocuments(props.project, picker.value.folder.path).filter(doc => doc.id !== picker.value!.row.id) : [])
+function toggleGroup(path: string) {
+  if (collapsed.value.has(path)) collapsed.value.delete(path)
+  else collapsed.value.add(path)
+}
+const itemOf = (doc: DocumentSummary): FolderItem => ({ key: doc.id, title: doc.title, document: doc })
 // Links are undirected; send the complete set so the other side is kept in step.
 const allLinks = (doc: DocumentSummary) => Array.from(new Set([...doc.links, ...props.project.documents.filter(other => other.links.includes(doc.id)).map(other => other.id)]))
-function toggle(doc: DocumentSummary, row: DocumentSummary) {
+function toggle(doc: DocumentSummary, col: DocumentSummary) {
   const links = allLinks(doc)
-  emit('assign', doc, linked(doc, row) ? links.filter(id => id !== row.id) : [...links, row.id])
+  emit('assign', doc, linked(doc, col) ? links.filter(id => id !== col.id) : [...links, col.id])
 }
-function addRow(id: unknown) {
-  if (typeof id === 'string' && id) emit('layout', { rows: [...(folder.value?.rows ?? []), id] })
-}
-const removeRow = (id: string) => emit('layout', { rows: (folder.value?.rows ?? []).filter(row => row !== id) })
-function addColumn(key: unknown) {
-  if (typeof key !== 'string' || !key) return
-  // The first added column makes the implicit children explicit, so nothing disappears.
-  const current = folder.value?.columns.length ? folder.value.columns : folderItems(props.project, props.path).map(item => item.folder ? item.folder.id : item.document.id)
-  emit('layout', { columns: [...current, key] })
-}
-const removeColumn = (source: string) => emit('layout', { columns: (folder.value?.columns ?? []).filter(column => column !== source) })
-const swap = () => emit('layout', { axis: axis.value === 'rows' ? 'columns' : 'rows' })
+const choose = (id: unknown) => { if (typeof id === 'string' && id !== columnFolder.value?.id) emit('layout', { gridFolder: id }) }
 </script>
 
 <template>
   <div class="space-y-4 min-w-0">
     <div class="flex flex-wrap items-center gap-2">
-      <p class="text-sm text-muted mr-auto">Rows are threads, characters, locations — anything. Columns are {{ custom ? 'what you chose' : `what is in ${folder?.name || 'this folder'}` }}. A card sits where the two are linked.</p>
-      <USelect :model-value="''" :items="rowChoices" placeholder="Add row" aria-label="Add row" :disabled="!rowChoices.length" class="w-56" @update:model-value="addRow" />
-      <USelect :model-value="''" :items="columnChoices" placeholder="Add column" aria-label="Add column" :disabled="!columnChoices.length" class="w-56" @update:model-value="addColumn" />
-      <UButton v-if="custom" color="neutral" variant="outline" icon="i-lucide-folder" aria-label="Use folder items as columns" @click="emit('layout', { columns: [] })">Folder items</UButton>
-      <UButton color="neutral" variant="outline" icon="i-lucide-arrow-left-right" aria-label="Swap rows and columns" @click="swap">Swap</UButton>
-      <UButton icon="i-lucide-plus" variant="soft" @click="emit('createDocument', 'Threads')">New thread</UButton>
+      <p class="text-sm text-muted mr-auto">Rows are the documents in {{ folder?.name || 'the project' }}; columns are the documents in the folder you pick. A mark sits where the two are linked.</p>
+      <USelect :model-value="columnFolder?.id ?? ''" :items="folderChoices" aria-label="Columns from folder" class="w-56" @update:model-value="choose" />
+      <UButton v-if="columnFolder" icon="i-lucide-plus" variant="soft" @click="emit('createDocument', columnFolder.path)">New in {{ columnFolder.name }}</UButton>
     </div>
-    <p v-if="!rowDocs.length" class="text-muted py-8">Add a row — a thread, a character, a location — to see where it runs through {{ folder?.name || 'the project' }}.</p>
+    <p v-if="!rows.length" class="text-muted py-8">This folder is empty. Add a document or subfolder.</p>
+    <p v-else-if="!columns.length" class="text-muted py-8">{{ columnFolder ? `${columnFolder.name} has no documents yet.` : 'Add another folder to compare against.' }}</p>
     <div v-else class="overflow-auto rounded-lg border border-default max-h-[65dvh]">
       <table class="border-collapse text-sm" aria-label="Grid">
         <thead>
           <tr>
-            <th class="sticky top-0 left-0 z-20 bg-default border-b border-r border-default min-w-44 p-2"><span class="sr-only">{{ axis === 'rows' ? 'Row' : 'Column' }}</span></th>
-            <th v-for="col in columns" :key="keyOf(col)" scope="col" class="sticky top-0 z-10 bg-default border-b border-r border-default min-w-44 p-2 align-top text-left font-normal">
-              <CollectionCard v-if="col.item" :item="col.item" compact @open="emit('open', col.item)">
-                <UButton v-if="col.source && !col.source.endsWith('/*')" size="xs" color="neutral" variant="ghost" icon="i-lucide-x" class="mt-2" :aria-label="`Remove ${col.item.title} column`" @click="removeColumn(col.source)">Remove</UButton>
-              </CollectionCard>
-              <CollectionCard v-else :item="{ key: col.row.id, title: col.row.title, document: col.row }" compact @open="emit('open', { key: col.row.id, title: col.row.title, document: col.row })">
-                <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-x" class="mt-2" :aria-label="`Remove ${col.row.title} row`" @click="removeRow(col.row.id)">Remove</UButton>
-              </CollectionCard>
+            <th class="sticky top-0 left-0 z-20 bg-default border-b border-r border-default min-w-56 p-2"><span class="sr-only">Document</span></th>
+            <th v-for="col in columns" :key="col.id" scope="col" class="sticky top-0 z-10 bg-default border-b border-r border-default min-w-40 p-2 align-top text-left font-normal">
+              <button type="button" class="flex items-center gap-2 w-full text-left font-medium focus-visible:outline-2 focus-visible:outline-primary" :aria-label="`Open ${col.title}`" @click="emit('open', itemOf(col))">
+                <UIcon :name="kindIcons[col.kind]" class="size-4 shrink-0 text-primary" /><span class="truncate">{{ col.title }}</span>
+              </button>
             </th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="row in rows" :key="keyOf(row)">
-            <th scope="row" class="sticky left-0 z-10 bg-default border-b border-r border-default min-w-44 p-2 align-top text-left font-normal">
-              <CollectionCard v-if="row.item" :item="row.item" compact @open="emit('open', row.item)">
-                <UButton v-if="row.source && !row.source.endsWith('/*')" size="xs" color="neutral" variant="ghost" icon="i-lucide-x" class="mt-2" :aria-label="`Remove ${row.item.title} column`" @click="removeColumn(row.source)">Remove</UButton>
-              </CollectionCard>
-              <CollectionCard v-else :item="{ key: row.row.id, title: row.row.title, document: row.row }" compact @open="emit('open', { key: row.row.id, title: row.row.title, document: row.row })">
-                <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-x" class="mt-2" :aria-label="`Remove ${row.row.title} row`" @click="removeRow(row.row.id)">Remove</UButton>
-              </CollectionCard>
-            </th>
-            <td v-for="col in columns" :key="keyOf(col)" class="relative border-b border-r border-default p-3 min-w-48" :class="axis === 'rows' ? 'align-middle' : 'align-top'">
-              <div class="absolute bg-primary/40" :class="axis === 'rows' ? 'inset-x-0 top-1/2 h-1 -translate-y-1/2' : 'inset-y-0 left-1/2 w-1 -translate-x-1/2'" aria-hidden="true" />
-              <template v-for="{ row: line, item } in [cell(row, col)]" :key="line.id">
-                <div v-if="item.folder" class="relative space-y-3">
-                  <CollectionCard v-for="doc in members(item.folder, line)" :key="doc.id" :item="{ key: doc.id, title: doc.title, document: doc }" @open="emit('open', { key: doc.id, title: doc.title, document: doc })">
-                    <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-x" class="mt-2" :aria-label="`Remove ${doc.title} from ${line.title}`" @click="toggle(doc, line)">Remove</UButton>
-                  </CollectionCard>
-                  <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-plus" class="mx-auto flex bg-default" :aria-label="`Choose documents in ${item.folder.name} for ${line.title}`" @click="picker = { folder: item.folder, row: line }">{{ members(item.folder, line).length ? 'Change' : 'Choose' }}</UButton>
+          <tr v-for="row in rows" :key="row.group ? `group:${row.group.path}` : row.doc.id">
+            <template v-if="row.group">
+              <th scope="row" class="sticky left-0 z-10 bg-elevated border-b border-r border-default p-2 text-left font-medium" :style="{ paddingLeft: `${8 + row.depth * 16}px` }">
+                <div class="flex items-center gap-1">
+                  <UButton color="neutral" variant="ghost" size="xs" :icon="collapsed.has(row.group.path) ? 'i-lucide-chevron-right' : 'i-lucide-chevron-down'" :aria-label="`${collapsed.has(row.group.path) ? 'Expand' : 'Collapse'} ${row.group.name}`" :aria-expanded="!collapsed.has(row.group.path)" @click="toggleGroup(row.group.path)" />
+                  <UButton color="neutral" variant="link" class="min-w-0" :aria-label="`Open folder ${row.group.name}`" @click="emit('open', { key: `folder:${row.group.name}`, title: row.group.name, folder: row.group })"><span class="truncate">{{ row.group.name }}</span></UButton>
+                  <span class="text-xs text-muted ml-auto">{{ row.members.length }}</span>
                 </div>
-                <div v-else-if="item.document.id === line.id" class="relative" />
-                <CollectionCard v-else-if="linked(item.document, line)" :item="item" class="relative" @open="emit('open', item)">
-                  <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-x" class="mt-2" :aria-label="`Remove ${item.document.title} from ${line.title}`" @click="toggle(item.document, line)">Remove</UButton>
-                </CollectionCard>
-                <UButton v-else size="xs" color="neutral" variant="outline" icon="i-lucide-plus" class="relative mx-auto flex bg-default" :aria-label="`Add ${item.document.title} to ${line.title}`" :title="`Add ${item.document.title} to ${line.title}`" @click="toggle(item.document, line)" />
-              </template>
-            </td>
+              </th>
+              <td v-for="col in columns" :key="col.id" class="relative bg-elevated border-b border-r border-default p-2 align-middle">
+                <div class="absolute inset-y-0 left-1/2 w-1 -translate-x-1/2 bg-primary/30" aria-hidden="true" />
+                <div v-if="collapsed.has(row.group.path)" class="relative flex flex-wrap gap-1">
+                  <UButton v-for="doc in row.members.filter(member => linked(member, col))" :key="doc.id" size="xs" color="primary" variant="soft" class="max-w-full" :aria-label="`Open ${doc.title}`" @click="emit('open', itemOf(doc))"><span class="truncate">{{ doc.title }}</span></UButton>
+                </div>
+              </td>
+            </template>
+            <template v-else>
+              <th scope="row" class="sticky left-0 z-10 bg-default border-b border-r border-default p-2 align-middle text-left font-normal" :style="{ paddingLeft: `${8 + row.depth * 16}px` }">
+                <CollectionCard :item="itemOf(row.doc)" compact @open="emit('open', itemOf(row.doc))" />
+              </th>
+              <td v-for="col in columns" :key="col.id" class="relative border-b border-r border-default p-2 align-middle">
+                <div class="absolute inset-y-0 left-1/2 w-1 -translate-x-1/2 bg-primary/30" aria-hidden="true" />
+                <div v-if="col.id === row.doc.id" class="relative" />
+                <div v-else-if="linked(row.doc, col)" class="relative mx-auto flex items-center gap-1 rounded-md border border-primary bg-default px-2 py-1 max-w-full w-fit">
+                  <UIcon name="i-lucide-circle-check" class="size-4 shrink-0 text-primary" /><span class="truncate text-xs">{{ col.title }}</span>
+                  <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-x" :aria-label="`Unlink ${row.doc.title} from ${col.title}`" @click="toggle(row.doc, col)" />
+                </div>
+                <UButton v-else size="xs" color="neutral" variant="outline" icon="i-lucide-plus" class="relative mx-auto flex bg-default" :aria-label="`Link ${row.doc.title} to ${col.title}`" :title="`Link ${row.doc.title} to ${col.title}`" @click="toggle(row.doc, col)" />
+              </td>
+            </template>
           </tr>
         </tbody>
       </table>
     </div>
-    <UModal v-model:open="pickerOpen" :title="picker ? `${picker.row.title} through ${picker.folder.name}` : 'Choose documents'" description="Tick the documents linked to this row.">
-      <template #body>
-        <div v-if="picker" class="space-y-2">
-          <UCheckbox v-for="doc in choices" :key="doc.id" :model-value="linked(doc, picker.row)" :label="doc.title" @update:model-value="toggle(doc, picker.row)" />
-          <p v-if="!choices.length" class="text-sm text-muted">This folder has no documents.</p>
-        </div>
-      </template>
-    </UModal>
   </div>
 </template>
