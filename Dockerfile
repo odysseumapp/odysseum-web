@@ -5,10 +5,7 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-FROM node:24-alpine AS runtime
-WORKDIR /app
-COPY --from=build --chown=node:node /app/.output ./.output
-USER node
-ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000
-EXPOSE 3000
-CMD ["node", ".output/server/index.mjs"]
+# Export with: docker build --output ./dist .
+# This image is a static artifact, not another running service.
+FROM scratch AS artifact
+COPY --from=build /app/.output/public/ /

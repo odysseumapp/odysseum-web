@@ -3,12 +3,14 @@
   "private": true,
   "type": "module",
   "license": "AGPL-3.0-only",
-  "engines": { "node": "^22.19.0 || ^24.11.0 || >=26.0.0" },
+  "engines": {
+    "node": "^22.19.0 || ^24.11.0 || >=26.0.0"
+  },
   "scripts": {
     "dev": "nuxt dev --host 127.0.0.1",
-    "build": "nuxt build",
+    "build": "nuxt generate && node scripts/release.mjs",
+    "package": "node scripts/package.mjs",
     "preview": "nuxt preview",
-    "start": "node .output/server/index.mjs",
     "postinstall": "nuxt prepare",
     "typecheck": "nuxt typecheck",
     "test": "playwright test"
@@ -34,6 +36,7 @@
     "@playwright/test": "^1.63.0",
     "@types/markdown-it": "^14.1.2",
     "@types/node": "^24.0.0",
+    "archiver": "^7.0.1",
     "typescript": "~5.9.3",
     "vue-tsc": "^3.0.0"
   }

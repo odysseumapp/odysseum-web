@@ -7,24 +7,24 @@ export default defineNuxtConfig({
   css: ['~/assets/css/main.css'],
   ui: { fonts: false },
   icon: { clientBundle: { scan: true } },
-  runtimeConfig: { apiOrigin: 'http://127.0.0.1:5080' },
-  app: { head: { title: 'Odysseum', htmlAttrs: { lang: 'en' } } },
+  app: { baseURL: '/webui/', head: { title: 'Odysseum', htmlAttrs: { lang: 'en' } } },
   experimental: { appManifest: false },
-  nitro: { prerender: { routes: ['/'] } },
+  // Only the development server proxies API requests. Release output is plain static files.
+  nitro: { devProxy: { '/api': { target: `${process.env.ODYSSEUM_API_ORIGIN || 'http://127.0.0.1:5080'}/api`, changeOrigin: true } } },
   typescript: { tsConfig: { compilerOptions: { noUncheckedIndexedAccess: false } } },
   pwa: {
     registerType: 'prompt',
     manifest: {
       name: 'Odysseum', short_name: 'Odysseum', description: 'Projects and documents',
-      start_url: '/', display: 'standalone', background_color: '#ffffff', theme_color: '#ffffff',
+      start_url: '/webui/', scope: '/webui/', display: 'standalone', background_color: '#ffffff', theme_color: '#ffffff',
       icons: [
-        { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
-        { src: '/icon-512.png', sizes: '512x512', type: 'image/png' },
-        { src: '/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+        { src: '/webui/icon-192.png', sizes: '192x192', type: 'image/png' },
+        { src: '/webui/icon-512.png', sizes: '512x512', type: 'image/png' },
+        { src: '/webui/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
       ],
     },
     workbox: {
-      navigateFallback: '/',
+      navigateFallback: '/webui/',
       navigateFallbackDenylist: [/^\/api(?:\/|$)/],
       globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
       clientsClaim: true,

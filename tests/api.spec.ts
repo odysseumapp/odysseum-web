@@ -12,12 +12,15 @@ test('API documentation remains available directly from the production API witho
     expect(reference.status()).toBe(200)
     expect(reference.headers()['content-type']).toContain('text/html')
     expect(await reference.text()).toContain('Odysseum API')
-    // The API no longer serves a bundled frontend or returns HTML for unknown endpoints.
-    expect((await request.get('/')).status()).toBe(404)
+    // The site root redirects to the installed static UI; the SPA fallback does not cover other paths.
+    const root = await request.get('/', { maxRedirects: 0 })
+    expect(root.status()).toBe(302)
+    expect(root.headers()['location']).toBe('/webui/')
+    expect((await request.get('/nothing')).status()).toBe(404)
   } finally { await request.dispose() }
 })
 
-test('standard JSON writes work through the proxy and preserve API response headers', async ({ request }) => {
+test('standard JSON writes work against the API and preserve API response headers', async ({ request }) => {
   expect((await request.post('/api/login', { data: { password: 'integration-password' } })).status()).toBe(200)
   const createdProject = await request.post('/api/projects', { data: { title: `API check ${Date.now()}` } })
   expect(createdProject.status()).toBe(201)
