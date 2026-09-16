@@ -1,16 +1,17 @@
 <script setup lang="ts">
 import { countWords, type DocumentSummary, type FolderSummary, type FolderView } from '~/models'
-import { folderDocument, folderItems, parentPath, type FolderItem } from '~/services/FolderStructure'
+import { folderDocument, folderItems, isDefaultFolder, parentPath, type FolderItem } from '~/services/FolderStructure'
 
 const workspace = useWorkspace()
-const { project, active, selectedId, sync, notice, passwordRequired } = workspace
+const { project, active, selectedId, sync, notice, passwordRequired, allowDeletingDefaultFolders } = workspace
 const { details, saving, edit: editDetails, reset, save: saveDetails } = useDocumentDetails()
 const { busy, error, run } = useTask()
 const folderPath = ref('Manuscript')
 const currentFolder = computed(() => project.value?.folders.find(folder => folder.path === folderPath.value))
 const items = computed(() => project.value ? folderItems(project.value, folderPath.value) : [])
 const view = ref<FolderView>('write')
-const canRemoveFolder = computed(() => !!folderPath.value && !items.value.length)
+const protectedFolder = computed(() => isDefaultFolder(folderPath.value) && !allowDeletingDefaultFolders.value)
+const canRemoveFolder = computed(() => !!folderPath.value && !items.value.length && !protectedFolder.value)
 const breadcrumbs = computed(() => ['', ...folderPath.value.split('/').filter(Boolean).map((_, index, parts) => parts.slice(0, index + 1).join('/'))])
 const folderOpen = ref(false)
 const folderParent = ref('')
@@ -154,7 +155,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', shortcut))
           <nav aria-label="Folder path" class="flex flex-wrap items-center gap-1 mr-auto"><template v-for="(path, index) in breadcrumbs" :key="path"><UIcon v-if="index" name="i-lucide-chevron-right" class="size-3 text-muted" /><UButton color="neutral" variant="link" @click="navigate(path)">{{ path.split('/').at(-1) || project.settings.title }}</UButton></template></nav>
           <UButton icon="i-lucide-plus" variant="soft" @click="newDocument()">New document</UButton>
           <UButton icon="i-lucide-folder-plus" color="neutral" variant="outline" @click="newFolder()">New folder</UButton>
-          <UButton v-if="folderPath" icon="i-lucide-folder-minus" color="neutral" variant="ghost" :disabled="!canRemoveFolder || busy" aria-label="Remove empty folder" title="Only empty folders can be removed" @click="removeFolder" />
+          <UButton v-if="folderPath" icon="i-lucide-folder-minus" color="neutral" variant="ghost" :disabled="!canRemoveFolder || busy" aria-label="Remove empty folder" :title="protectedFolder ? 'Default folders can be removed once the server setting allows it' : 'Only empty folders can be removed'" @click="removeFolder" />
         </div>
         <TimelineView v-if="view === 'threads' && !focus" :project="project" :path="folderPath" @open="openItem" @place="place" @create-document="path => newDocument(path, true)" />
         <CollectionView v-else-if="(view === 'board' || view === 'outline') && !focus" :items="items" :path="folderPath" :view="view" @open="openItem" @reorder="reorder" />

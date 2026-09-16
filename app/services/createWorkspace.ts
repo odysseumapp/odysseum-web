@@ -4,7 +4,7 @@ import { FetchApiClient } from '../api/FetchApiClient'
 import { OdysseumApi } from '../api/OdysseumApi'
 import { ApiError, OFFLINE_MESSAGE, isOffline } from '../api/IApiClient'
 import type { IOdysseumApi } from '../api/IOdysseumApi'
-import type { DocumentContent, DocumentSummary, FolderLayout, MetadataFields, Project, ProjectInfo, ProjectSettings } from '../models'
+import type { DocumentContent, DocumentSummary, FolderLayout, MetadataFields, Project, ProjectInfo, ProjectSettings, ServerSettings } from '../models'
 import { downloadText, exportMarkdown } from '../services/ManuscriptExport'
 import { searchManuscript } from '../services/ManuscriptSearch'
 import { ProjectSession } from '../services/ProjectSession'
@@ -45,6 +45,7 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
   const durable = ref(true)
   const authenticated = ref(false)
   const passwordRequired = ref(false)
+  const allowDeletingDefaultFolders = ref(false)
   const loading = ref(true)
   /** Scene details the server refused; the inspector picks these up as unsaved drafts. */
   const rejectedDetails = reactive(new Map<string, MetadataFields>())
@@ -267,6 +268,7 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
       if (info) {
         authenticated.value = info.authenticated
         passwordRequired.value = info.passwordRequired
+        allowDeletingDefaultFolders.value = info.allowDeletingDefaultFolders
       } else {
         // Offline: work from the local copy; the server asks for the password again when it is back.
         authenticated.value = true
@@ -289,6 +291,11 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
   async function login(password: string) {
     const { library: lib } = await services()
     await lib.login(password)
+  }
+
+  async function updateServerSettings(settings: ServerSettings) {
+    const saved = await api.updateServerSettings(settings)
+    allowDeletingDefaultFolders.value = saved.allowDeletingDefaultFolders
   }
 
   async function logout() {
@@ -405,8 +412,8 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
   }
 
   return {
-    projects, slug, project, selectedId, active, error, notice, sync, connected, durable, authenticated, passwordRequired, loading, rejectedDetails, documentRenames,
-    dirty, edit, open, save, refresh, start, login, logout, create, saveDetails, move, reorder, createFolder, removeFolder, saveFolderLayout, updateSettings, search, exportManuscript,
+    projects, slug, project, selectedId, active, error, notice, sync, connected, durable, authenticated, passwordRequired, allowDeletingDefaultFolders, loading, rejectedDetails, documentRenames,
+    dirty, edit, open, save, refresh, start, login, logout, create, saveDetails, move, reorder, createFolder, removeFolder, saveFolderLayout, updateSettings, updateServerSettings, search, exportManuscript,
     snapshots, snapshot, useDisk, keepMine, saveCopy, discard, showError, beforeUnload, stop, loadProjects, openProject, leaveProject, createProject,
   }
 }

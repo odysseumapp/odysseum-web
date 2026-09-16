@@ -17,7 +17,9 @@ export interface Project { id: string; settings: ProjectSettings; revision: stri
 export interface ProjectInfo { slug: string; title: string; id: string; lastModified: string }
 export interface ApiCollection<T> { totalItems: number; items: T[] }
 export interface Snapshot { id: string; created: string; wordCount: number }
-export interface SessionInfo { authenticated: boolean; passwordRequired: boolean }
+export interface SessionInfo { authenticated: boolean; passwordRequired: boolean; allowDeletingDefaultFolders: boolean }
+/** Server settings the interface may change. */
+export interface ServerSettings { allowDeletingDefaultFolders: boolean }
 export interface SearchResult { document: DocumentSummary; excerpt: string }
 
 /** The editable details of a scene, as shown in the inspector. */

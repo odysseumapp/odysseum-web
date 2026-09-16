@@ -1,7 +1,7 @@
 import { defineConfig } from '@playwright/test'
 import path from 'node:path'
 
-const serverRoot = path.resolve(process.env.ODYSSEUM_SERVER_ROOT || '../odysseum')
+const serverRoot = path.resolve(process.env.ODYSSEUM_SERVER_ROOT || '../odysseum-server')
 export default defineConfig({
   testDir: './tests',
   fullyParallel: false,

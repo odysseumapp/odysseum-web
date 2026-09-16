@@ -366,3 +366,26 @@ test('unsaved details survive server ID assignment and a second save survives an
   await page.getByRole('button', { name: 'Details', exact: true }).click()
   await expect(page.getByRole('textbox', { name: 'Synopsis', exact: true })).toHaveValue('The later detail edit.')
 })
+
+test('new projects seed Chapter 01, order default folders and protect them until the server setting allows removal', async ({ page }) => {
+  const info = await createProject(page.request)
+  await page.goto(projectUrl(info.slug))
+  const tree = page.locator('aside')
+  await expect(tree.getByRole('button', { name: 'Folder Manuscript/Chapter 01', exact: true })).toBeVisible()
+  expect((await tree.getByRole('button', { name: /^Folder [^/]+$/ }).allInnerTexts()).map(text => text.trim())).toEqual(['Manuscript', 'Characters', 'Locations', 'Threads', 'Notes'])
+  await chooseSection(page, 'Threads')
+  await expect(page.getByRole('button', { name: 'Remove empty folder' })).toBeDisabled()
+  const toggleSetting = async () => {
+    await page.getByRole('button', { name: 'Projects', exact: true }).click()
+    await page.getByRole('button', { name: 'Server settings', exact: true }).click()
+    await page.getByRole('switch', { name: 'Allow deleting default project folders?' }).click()
+    await page.getByRole('button', { name: 'Save settings', exact: true }).click()
+    await expect(page.getByRole('dialog')).toBeHidden()
+  }
+  await toggleSetting()
+  await page.goto(projectUrl(info.slug))
+  await chooseSection(page, 'Threads')
+  await page.getByRole('button', { name: 'Remove empty folder' }).click()
+  await expect(tree.getByRole('button', { name: 'Folder Threads', exact: true })).toBeHidden()
+  await toggleSetting()
+})
