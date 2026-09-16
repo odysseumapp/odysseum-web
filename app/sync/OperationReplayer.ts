@@ -6,7 +6,7 @@ import { publishView } from './ProjectView'
 import { folderItems } from '../services/FolderStructure'
 
 const fields = (doc: DocumentSummary | MetadataFields): MetadataFields =>
-  ({ title: doc.title, synopsis: doc.synopsis, notes: doc.notes, status: doc.status, wordGoal: doc.wordGoal, characters: [...(doc.characters ?? [])], locations: [...(doc.locations ?? [])], threads: [...(doc.threads ?? [])] })
+  ({ title: doc.title, synopsis: doc.synopsis, notes: doc.notes, status: doc.status, wordGoal: doc.wordGoal, links: [...(doc.links ?? [])].sort() })
 const same = (a: MetadataFields, b: MetadataFields) => JSON.stringify(fields(a)) === JSON.stringify(fields(b))
 
 /**
@@ -71,8 +71,8 @@ export class OperationReplayer {
           const keys = new Set(folderItems(project, op.path).map(item => item.key))
           const layout = { ...folder, ...op.patch }
           layout.itemOrder = layout.itemOrder.filter(key => keys.has(key))
-          // A thread removed while offline is dropped from the view rather than failing the whole layout.
-          layout.threads = layout.threads.filter(id => project.documents.some(doc => doc.id === id && doc.kind === 'thread'))
+          // A column folder removed while offline falls back to the default rather than failing the whole layout.
+          if (layout.gridFolder && !project.folders.some(item => item.id === layout.gridFolder)) layout.gridFolder = null
           updated = await api.saveFolderLayout(slug, op.path, layout, project.revision)
         }
         await mirror.putProject({ slug, project: updated, syncedAt: new Date().toISOString() })

@@ -66,7 +66,7 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
 
   function resolveProject(view: Project): Project {
     return { ...view, documents: view.documents.map(resolveSummary), folders: view.folders.map(folder => ({ ...folder,
-      itemOrder: folder.itemOrder.map(resolveId), threads: folder.threads.map(resolveId),
+      itemOrder: folder.itemOrder.map(resolveId),
     })) }
   }
 

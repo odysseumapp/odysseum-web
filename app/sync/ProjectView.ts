@@ -8,7 +8,7 @@ import type { SyncContext } from './SyncContext'
 export function overlay(server: Project, ops: PendingOp[], documents: Map<string, MirroredDocument>): Project {
   let settings: ProjectSettings = server.settings
   let folders = completeFolders(server.folders, server.documents, settings.title)
-  let list: DocumentSummary[] = server.documents.map(doc => ({ ...doc, characters: doc.characters ?? [], locations: doc.locations ?? [], threads: [...(doc.threads ?? [])] }))
+  let list: DocumentSummary[] = server.documents.map(doc => ({ ...doc, links: [...(doc.links ?? [])] }))
   for (const { op } of ops) {
     switch (op.type) {
       case 'createFolder':
@@ -28,7 +28,15 @@ export function overlay(server: Project, ops: PendingOp[], documents: Map<string
         break
       case 'metadata': {
         const doc = list.find(item => item.id === op.id)
-        if (doc) Object.assign(doc, op.fields)
+        if (!doc) break
+        // Links are undirected: the documents at the other end change with this one, as they will on the server.
+        const before = new Set(doc.links)
+        const after = new Set(op.fields.links ?? [])
+        for (const other of list) {
+          if (before.has(other.id) && !after.has(other.id)) other.links = other.links.filter(id => id !== op.id)
+          if (after.has(other.id) && !other.links.includes(op.id)) other.links = [...other.links, op.id]
+        }
+        Object.assign(doc, op.fields)
         break
       }
       case 'move': {
@@ -58,7 +66,7 @@ export function summaryFor(op: Extract<LocalOp, { type: 'create' }>, existing: D
     id: op.id, path: op.path, title: op.title, folder: op.folder, synopsis: '', notes: '', status: 'draft',
     wordGoal: settings.defaultSceneWordGoal, order: existing.length ? Math.max(...existing.map(doc => doc.order)) + 1 : 0,
     wordCount: countWords(op.content), revision: '', lastModified: new Date().toISOString(),
-    kind: kindFor(op.path), characters: [], locations: [], threads: [],
+    kind: kindFor(op.path), links: [],
   }
 }
 
