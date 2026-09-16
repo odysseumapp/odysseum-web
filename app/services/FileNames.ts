@@ -33,8 +33,7 @@ export function kindFor(path: string): DocumentKind {
   const top = path.split('/')[0].toLowerCase()
   if (top === 'characters') return 'character'
   if (top === 'locations') return 'location'
-  if (top === 'arcs') return 'arc'
-  if (top === 'beats') return 'beat'
+  if (top === 'threads') return 'thread'
   if (top === 'notes' || top === 'research' || top === 'story notes') return 'note'
   return 'scene'
 }

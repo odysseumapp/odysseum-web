@@ -6,8 +6,12 @@ const { project, active, selectedId } = useWorkspace()
 const choices = (kind: string) => project.value?.documents.filter(doc => doc.kind === kind).map(doc => ({ label: doc.title, value: doc.id })) ?? []
 const characters = computed(() => choices('character'))
 const locations = computed(() => choices('location'))
-const appearances = computed(() => project.value?.documents.filter(doc => doc.kind === 'scene' &&
-  (active.value?.document.kind === 'location' ? doc.locations : doc.characters).includes(selectedId.value)) ?? [])
+const threads = computed(() => choices('thread'))
+const linkedBy: Partial<Record<string, (doc: DocumentSummary) => string[]>> = { character: doc => doc.characters, location: doc => doc.locations, thread: doc => doc.threads }
+const appearances = computed(() => {
+  const links = linkedBy[active.value?.document.kind ?? '']
+  return links ? project.value?.documents.filter(doc => links(doc).includes(selectedId.value)) ?? [] : []
+})
 </script>
 
 <template>
@@ -22,10 +26,11 @@ const appearances = computed(() => project.value?.documents.filter(doc => doc.ki
       <UFormField label="Locations"><USelect v-model="fields.locations" :items="locations" multiple class="w-full" placeholder="Select locations" @update:model-value="emit('edit')" /></UFormField>
       <UFormField label="Scene word goal"><UInput v-model.number="fields.wordGoal" type="number" min="0" max="10000000" class="w-full" @update:model-value="emit('edit')" /></UFormField>
     </template>
-    <div v-if="active.document.kind === 'character' || active.document.kind === 'location'" class="space-y-2">
-      <h3 class="text-sm font-medium">Appears in</h3>
+    <UFormField v-if="active.document.kind !== 'thread'" label="Threads"><USelect v-model="fields.threads" :items="threads" multiple class="w-full" placeholder="Select threads" @update:model-value="emit('edit')" /></UFormField>
+    <div v-if="active.document.kind === 'character' || active.document.kind === 'location' || active.document.kind === 'thread'" class="space-y-2">
+      <h3 class="text-sm font-medium">{{ active.document.kind === 'thread' ? 'On this thread' : 'Appears in' }}</h3>
       <UButton v-for="doc in appearances" :key="doc.id" color="neutral" variant="link" block class="justify-start" @click="emit('open', doc)">{{ doc.title }}</UButton>
-      <p v-if="!appearances.length" class="text-sm text-muted">No linked scenes.</p>
+      <p v-if="!appearances.length" class="text-sm text-muted">{{ active.document.kind === 'thread' ? 'No documents on this thread yet.' : 'No linked scenes.' }}</p>
     </div>
     <div v-if="dirty" class="flex gap-2"><UButton type="submit" :loading="saving">Save details</UButton><UButton color="neutral" variant="outline" @click="emit('reset')">Reset</UButton></div>
     <USeparator />

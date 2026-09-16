@@ -21,12 +21,12 @@ export function folderIcon(path: string) {
 export const parentPath = (path: string) => path.split('/').slice(0, -1).join('/')
 export const folderFor = (path: string, title = ''): FolderSummary => ({
   id: `folder:${path}`, path, name: path.split('/').at(-1) || title, parent: path === '' ? null : parentPath(path),
-  pinnedView: null, itemOrder: [], positions: {},
+  pinnedView: null, itemOrder: [], threads: [], threadAxis: null,
 })
 
 /** Also handles older browser mirrors and folders introduced by a pending document creation. */
 export function completeFolders(folders: FolderSummary[] | undefined, documents: DocumentSummary[], title: string) {
-  const result = new Map((folders ?? []).map(folder => [folder.path, { ...folder, itemOrder: [...folder.itemOrder], positions: { ...folder.positions } }]))
+  const result = new Map((folders ?? []).map(folder => [folder.path, { ...folder, itemOrder: [...folder.itemOrder], threads: [...(folder.threads ?? [])], threadAxis: folder.threadAxis ?? null }]))
   const add = (path: string) => {
     if (!result.has(path)) result.set(path, folderFor(path, title))
     if (path) add(parentPath(path))
@@ -54,6 +54,17 @@ export function folderItems(project: Project, path: string): FolderItem[] {
     return preset < 0 ? Infinity : ranks.size + preset
   }
   return items.sort((a, b) => (rank(a) - rank(b)) || 0)
+}
+
+/** Every document under a folder, depth first in the order the views show them. */
+export function descendantDocuments(project: Project, path: string): DocumentSummary[] {
+  return folderItems(project, path).flatMap(item => item.document ? [item.document] : descendantDocuments(project, item.folder.path))
+}
+
+/** The project's threads: documents anywhere in the Threads folder, in tree order. */
+export function threadDocuments(project: Project) {
+  return project.folders.filter(folder => folder.parent === '' && folder.name.toLocaleLowerCase() === 'threads')
+    .flatMap(folder => descendantDocuments(project, folder.path)).filter(doc => doc.kind === 'thread')
 }
 
 export function folderDocument(project: Project, folder: FolderSummary) {

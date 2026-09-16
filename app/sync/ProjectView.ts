@@ -8,7 +8,7 @@ import type { SyncContext } from './SyncContext'
 export function overlay(server: Project, ops: PendingOp[], documents: Map<string, MirroredDocument>): Project {
   let settings: ProjectSettings = server.settings
   let folders = completeFolders(server.folders, server.documents, settings.title)
-  let list: DocumentSummary[] = server.documents.map(doc => ({ ...doc, characters: doc.characters ?? [], locations: doc.locations ?? [], arcPositions: { ...(doc.arcPositions ?? {}) } }))
+  let list: DocumentSummary[] = server.documents.map(doc => ({ ...doc, characters: doc.characters ?? [], locations: doc.locations ?? [], threads: [...(doc.threads ?? [])] }))
   for (const { op } of ops) {
     switch (op.type) {
       case 'createFolder':
@@ -19,7 +19,7 @@ export function overlay(server: Project, ops: PendingOp[], documents: Map<string
         break
       case 'folderLayout': {
         const folder = folders.find(folder => folder.path === op.path)
-        if (folder) Object.assign(folder, op.patch, { positions: { ...folder.positions, ...op.patch.positions } })
+        if (folder) Object.assign(folder, op.patch)
         break
       }
       case 'create':
@@ -58,7 +58,7 @@ export function summaryFor(op: Extract<LocalOp, { type: 'create' }>, existing: D
     id: op.id, path: op.path, title: op.title, folder: op.folder, synopsis: '', notes: '', status: 'draft',
     wordGoal: settings.defaultSceneWordGoal, order: existing.length ? Math.max(...existing.map(doc => doc.order)) + 1 : 0,
     wordCount: countWords(op.content), revision: '', lastModified: new Date().toISOString(),
-    kind: kindFor(op.path), characters: [], locations: [], arcPositions: {},
+    kind: kindFor(op.path), characters: [], locations: [], threads: [],
   }
 }
 

@@ -72,16 +72,16 @@ export function renameInOp(op: LocalOp, from: string, to: string): LocalOp {
   switch (op.type) {
     case 'create': case 'move': return op.id === from ? { ...op, id: to } : op
     case 'metadata': {
-      // The scene itself, and any character or location attached to it, may have been created offline.
-      const swap = (ids: string[]) => ids.map(id => id === from ? to : id)
-      const positions = (values: Record<string, number> = {}) => Object.fromEntries(Object.entries(values).map(([id, position]) => [id === from ? to : id, position]))
-      const renamed = { ...op, fields: { ...op.fields, characters: swap(op.fields.characters ?? []), locations: swap(op.fields.locations ?? []), arcPositions: positions(op.fields.arcPositions) }, base: { ...op.base, characters: swap(op.base.characters ?? []), locations: swap(op.base.locations ?? []), arcPositions: positions(op.base.arcPositions) } }
+      // The scene itself, and any character, location or thread attached to it, may have been created offline.
+      const swap = (ids: string[] = []) => ids.map(id => id === from ? to : id)
+      const links = (fields: MetadataFields) => ({ ...fields, characters: swap(fields.characters), locations: swap(fields.locations), threads: swap(fields.threads) })
+      const renamed = { ...op, fields: links(op.fields), base: links(op.base) }
       return op.id === from ? { ...renamed, id: to } : renamed
     }
     case 'order': return { ...op, ids: op.ids.map(id => id === from ? to : id) }
     case 'folderLayout': return { ...op, patch: { ...op.patch,
       ...(op.patch.itemOrder ? { itemOrder: op.patch.itemOrder.map(id => id === from ? to : id) } : {}),
-      ...(op.patch.positions ? { positions: Object.fromEntries(Object.entries(op.patch.positions).map(([id, value]) => [id === from ? to : id, value])) } : {}),
+      ...(op.patch.threads ? { threads: op.patch.threads.map(id => id === from ? to : id) } : {}),
     } }
     default: return op
   }

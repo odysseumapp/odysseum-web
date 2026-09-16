@@ -6,7 +6,7 @@ import { publishView } from './ProjectView'
 import { folderItems } from '../services/FolderStructure'
 
 const fields = (doc: DocumentSummary | MetadataFields): MetadataFields =>
-  ({ title: doc.title, synopsis: doc.synopsis, notes: doc.notes, status: doc.status, wordGoal: doc.wordGoal, characters: [...(doc.characters ?? [])], locations: [...(doc.locations ?? [])], arcPositions: Object.fromEntries(Object.entries(doc.arcPositions ?? {}).sort(([a], [b]) => a.localeCompare(b))) })
+  ({ title: doc.title, synopsis: doc.synopsis, notes: doc.notes, status: doc.status, wordGoal: doc.wordGoal, characters: [...(doc.characters ?? [])], locations: [...(doc.locations ?? [])], threads: [...(doc.threads ?? [])] })
 const same = (a: MetadataFields, b: MetadataFields) => JSON.stringify(fields(a)) === JSON.stringify(fields(b))
 
 /**
@@ -69,9 +69,10 @@ export class OperationReplayer {
           const folder = project.folders.find(item => item.path === op.path)
           if (!folder) throw new ApiError(404, 'The folder no longer exists, so its view could not be saved.')
           const keys = new Set(folderItems(project, op.path).map(item => item.key))
-          const layout = { ...folder, ...op.patch, positions: { ...folder.positions, ...op.patch.positions } }
+          const layout = { ...folder, ...op.patch }
           layout.itemOrder = layout.itemOrder.filter(key => keys.has(key))
-          layout.positions = Object.fromEntries(Object.entries(layout.positions).filter(([key]) => keys.has(key)))
+          // A thread removed while offline is dropped from the view rather than failing the whole layout.
+          layout.threads = layout.threads.filter(id => project.documents.some(doc => doc.id === id && doc.kind === 'thread'))
           updated = await api.saveFolderLayout(slug, op.path, layout, project.revision)
         }
         await mirror.putProject({ slug, project: updated, syncedAt: new Date().toISOString() })
