@@ -74,7 +74,8 @@ export function renameInOp(op: LocalOp, from: string, to: string): LocalOp {
     case 'metadata': {
       // The document itself, and anything linked to it, may have been created offline.
       const swap = (ids: string[] = []) => ids.map(id => id === from ? to : id)
-      const links = (fields: MetadataFields) => ({ ...fields, links: swap(fields.links) })
+      const notes = (map: Record<string, string> = {}) => Object.fromEntries(Object.entries(map).map(([id, note]) => [id === from ? to : id, note]))
+      const links = (fields: MetadataFields) => ({ ...fields, links: swap(fields.links), linkNotes: notes(fields.linkNotes) })
       const renamed = { ...op, fields: links(op.fields), base: links(op.base) }
       return op.id === from ? { ...renamed, id: to } : renamed
     }

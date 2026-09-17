@@ -8,6 +8,8 @@ export interface DocumentSummary {
   wordGoal: number; order: number; wordCount: number; revision: string; lastModified: string;
   /** `links` are the documents this one is linked to, in both directions: characters, locations, threads, notes, anything. */
   kind: DocumentKind; links: string[];
+  /** A note on a link, keyed by the linked document's id. The note is shared: both ends read the same text. */
+  linkNotes: Record<string, string>;
 }
 export interface DocumentContent { document: DocumentSummary; content: string }
 export interface ProjectSettings { title: string; wordGoal: number; defaultSceneWordGoal: number }
@@ -25,7 +27,7 @@ export interface ServerSettings { allowDeletingDefaultFolders: boolean }
 export interface SearchResult { document: DocumentSummary; excerpt: string }
 
 /** The editable details of a scene, as shown in the inspector. */
-export interface MetadataFields { title: string; synopsis: string; notes: string; status: DocumentStatus; wordGoal: number; links: string[] }
+export interface MetadataFields { title: string; synopsis: string; notes: string; status: DocumentStatus; wordGoal: number; links: string[]; linkNotes: Record<string, string> }
 
 export const countWords = (text: string) => (text.match(/[\p{L}\p{N}]+(?:['’\-][\p{L}\p{N}]+)*/gu) ?? []).length
 export const statusLabel = (status: string) => ({ draft: 'First draft', revised: 'In revision', done: 'Finished' }[status] ?? status)

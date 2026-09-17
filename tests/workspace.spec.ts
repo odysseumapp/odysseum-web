@@ -144,6 +144,15 @@ test('every folder has a grid of its documents against another folder, with coll
     const current = await project(page.request, info.slug)
     return [current.documents.find(doc => doc.id === second.document.id)?.links, current.documents.find(doc => doc.id === race.document.id)?.links]
   }).toEqual([[race.document.id], [second.document.id]])
+  // The mark takes a note that both ends of the link share.
+  await grid.getByRole('button', { name: 'Note on Discovery and Race', exact: true }).click()
+  await grid.getByRole('textbox', { name: 'Note on Discovery and Race', exact: true }).fill('Where the race begins')
+  await page.keyboard.press('Enter')
+  await expect(grid.getByRole('button', { name: 'Edit note on Discovery and Race', exact: true })).toHaveText('Where the race begins')
+  await expect.poll(async () => {
+    const current = await project(page.request, info.slug)
+    return [current.documents.find(doc => doc.id === second.document.id)?.linkNotes, current.documents.find(doc => doc.id === race.document.id)?.linkNotes]
+  }).toEqual([{ [race.document.id]: 'Where the race begins' }, { [second.document.id]: 'Where the race begins' }])
   await grid.getByRole('button', { name: 'Link Nested point to Meet Cute', exact: true }).click()
   await expect.poll(async () => (await project(page.request, info.slug)).documents.find(doc => doc.id === nested.document.id)?.links).toEqual([cute.document.id])
   await grid.getByRole('button', { name: 'Link Nested to Meet Cute', exact: true }).click()
@@ -240,7 +249,8 @@ test('offline reload preserves edits, pins and links made in the grid', async ({
   await page.getByRole('tab', { name: 'Grid', exact: true }).click()
   await page.getByRole('button', { name: 'Pin view for this folder' }).click()
   await page.getByRole('button', { name: 'Link Offline scene to Offline thread', exact: true }).click()
-  const on = page.getByRole('button', { name: 'Unlink Offline scene from Offline thread', exact: true })
+  // The unlink button only shows under the pointer; the mark itself is always there.
+  const on = page.getByRole('button', { name: 'Note on Offline scene and Offline thread', exact: true })
   await expect(on).toBeVisible()
   await page.reload()
   await chooseSection(page, 'Manuscript')
