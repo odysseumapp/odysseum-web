@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { DocumentSummary, FolderSummary, Project } from '~/models'
-import { folderIcon, folderItems } from '~/services/FolderStructure'
+import { folderIcon, folderItems, kindIcons } from '~/services/FolderStructure'
 import { draggedItem, startItemDrag } from '~/services/ItemDrag'
 const props = defineProps<{ project: Project; path: string; selectedFolder: string; selectedId: string }>()
 const emit = defineEmits<{ folder: [folder: FolderSummary]; document: [doc: DocumentSummary]; reorder: [path: string, from: string, to: string] }>()
@@ -23,7 +23,7 @@ function drop(event: DragEvent, to: string) {
         </div>
         <FolderTree v-if="!collapsed.has(item.folder.path)" class="ml-4 pl-2 border-l border-default" :project="project" :path="item.folder.path" :selected-folder="selectedFolder" :selected-id="selectedId" @folder="emit('folder', $event)" @document="emit('document', $event)" @reorder="(path, from, to) => emit('reorder', path, from, to)" />
       </template>
-      <UButton v-else color="neutral" :variant="selectedId === item.document.id ? 'soft' : 'ghost'" icon="i-lucide-file-text" class="w-full justify-start" :aria-label="`Open ${item.title}`" @click="emit('document', item.document)"><span class="truncate">{{ item.title }}</span></UButton>
+      <UButton v-else color="neutral" :variant="selectedId === item.document.id ? 'soft' : 'ghost'" :icon="kindIcons[item.document.kind]" class="w-full justify-start" :aria-label="`Open ${item.title}`" @click="emit('document', item.document)"><span class="truncate">{{ item.title }}</span></UButton>
     </li>
   </ul>
 </template>

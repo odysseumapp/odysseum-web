@@ -1,4 +1,4 @@
-import type { ApiCollection, DocumentContent, FolderLayout, MetadataFields, Project, ProjectInfo, ProjectSettings, SearchResult, ServerSettings, SessionInfo, Snapshot } from '../models'
+import type { ApiCollection, DocumentContent, FolderLayout, MetadataFields, Project, ProjectInfo, ProjectSettings, SearchResult, ServerSettings, SessionInfo, Snapshot, Theme } from '../models'
 import type { IApiClient } from './IApiClient'
 import type { IOdysseumApi } from './IOdysseumApi'
 
@@ -13,6 +13,11 @@ export class OdysseumApi implements IOdysseumApi {
   logout() { return this.client.request('/logout', 'POST') }
   getServerSettings() { return this.client.request<ServerSettings>('/settings') }
   updateServerSettings(settings: ServerSettings) { return this.client.request<ServerSettings>('/settings', 'PUT', settings) }
+
+  private theme = (name: string) => `/themes/${encodeURIComponent(name)}`
+  async listThemes() { return (await this.client.request<ApiCollection<Theme>>('/themes')).items }
+  saveTheme(theme: Theme) { return this.client.request<Theme>(this.theme(theme.name), 'PUT', { colors: theme.colors }) }
+  deleteTheme(name: string) { return this.client.request(this.theme(name), 'DELETE') }
 
   async listProjects() { return (await this.client.request<ApiCollection<ProjectInfo>>('/projects')).items }
   createProject(title: string, wordGoal?: number) { return this.client.request<ProjectInfo>('/projects', 'POST', { title, wordGoal }) }

@@ -28,6 +28,7 @@ const inspector = ref(false)
 const createOpen = ref(false)
 const searchOpen = ref(false)
 const settingsOpen = ref(false)
+const themeOpen = ref(false)
 const historyOpen = ref(false)
 const moveOpen = ref(false)
 const conflictOpen = ref(false)
@@ -64,10 +65,20 @@ watch(() => project.value?.folders, folders => {
   if (folders && !folders.some(folder => folder.path === folderPath.value)) folderPath.value = ''
 }, { immediate: true })
 watch(() => active.value?.document.folder, path => { if (path !== undefined && view.value === 'write') folderPath.value = path }, { immediate: true })
+// Writing always happens in the folder you are in: its own document, else its first, whichever way you got here.
+watch([view, folderPath], async () => {
+  if (view.value !== 'write' || !project.value || active.value?.document.folder === folderPath.value) return
+  const folder = currentFolder.value
+  const own = folder && folderDocument(project.value, folder)
+  const first = own ?? project.value.documents.find(doc => doc.folder === folderPath.value)
+  if (first) await select(first)
+  else view.value = 'board'
+})
 
-async function select(doc: DocumentSummary) {
+/** Opening a document from a card, a search result or a link asks to write it; the sidebar only moves the cursor. */
+async function select(doc: DocumentSummary, write = true) {
   folderPath.value = doc.folder
-  view.value = 'write'
+  if (write) view.value = 'write'
   mobileSidebar.value = false
   await run(() => workspace.open(doc.id))
 }
@@ -80,23 +91,17 @@ function newDocument(path = folderPath.value, keep = false) {
   createOpen.value = true
 }
 function newFolder(parent = folderPath.value) { folderParent.value = parent; folderOpen.value = true }
-async function openFolder(folder: FolderSummary, preserveView = false) {
+/** The view you chose follows you from folder to folder; a folder pinned to a view is the one exception. */
+function openFolder(folder: FolderSummary) {
   folderPath.value = folder.path
   mobileSidebar.value = false
-  if (preserveView) return
-  // Opening a folder opens its own document, unless the writer pinned a view for it.
-  view.value = folder.pinnedView ?? 'write'
-  if (view.value !== 'write') return
-  const own = project.value && folderDocument(project.value, folder)
-  const first = own ?? project.value?.documents.find(doc => doc.folder === folder.path)
-  if (first) await select(first)
-  else view.value = 'board'
+  view.value = folder.pinnedView ?? view.value
 }
 function navigate(path: string) {
   const folder = project.value?.folders.find(folder => folder.path === path)
-  if (folder) void openFolder(folder, true)
+  if (folder) openFolder(folder)
 }
-function openItem(item: FolderItem) { if (item.folder) void openFolder(item.folder, true); else void select(item.document) }
+function openItem(item: FolderItem) { if (item.folder) openFolder(item.folder); else void select(item.document) }
 async function reorder(path: string, from: string, to: string) {
   if (!project.value || !from || from === to) return
   const ids = folderItems(project.value, path).map(item => item.key)
@@ -139,6 +144,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', shortcut))
         <UButton color="neutral" variant="ghost" icon="i-lucide-settings" aria-label="Project settings" @click="settingsOpen = true" />
         <UButton color="neutral" variant="ghost" icon="i-lucide-download" aria-label="Export manuscript" @click="workspace.exportManuscript" />
         <UButton color="neutral" variant="ghost" icon="i-lucide-refresh-cw" aria-label="Sync now" @click="run(workspace.refresh)" />
+        <UButton color="neutral" variant="ghost" icon="i-lucide-palette" aria-label="Appearance" @click="themeOpen = true" />
         <UColorModeButton />
         <UButton v-if="passwordRequired" color="neutral" variant="ghost" icon="i-lucide-lock" aria-label="Lock workspace" @click="run(workspace.logout)" />
       </template>
@@ -149,7 +155,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', shortcut))
     <div class="flex flex-1 min-w-0">
       <aside v-if="!focus" class="hidden md:block w-72 shrink-0 border-r border-default p-3 overflow-y-auto max-h-[calc(100dvh-4rem)]">
         <div class="flex items-center justify-between mb-3"><UButton color="neutral" variant="ghost" icon="i-lucide-folders" @click="openFolder(project.folders.find(folder => folder.path === '')!)">All folders</UButton><UButton color="neutral" variant="ghost" icon="i-lucide-folder-plus" aria-label="New top-level folder" @click="newFolder('')" /></div>
-        <FolderTree :project="project" path="" :selected-folder="folderPath" :selected-id="selectedId" @folder="openFolder" @document="select" @reorder="reorder" />
+        <FolderTree :project="project" path="" :selected-folder="folderPath" :selected-id="selectedId" @folder="openFolder" @document="doc => select(doc, false)" @reorder="reorder" />
         <div class="mt-6 space-y-2"><p class="text-xs text-muted">{{ totalWords.toLocaleString() }} / {{ project.settings.wordGoal.toLocaleString() }} words</p><UProgress :model-value="Math.min(totalWords, project.settings.wordGoal || 1)" :max="project.settings.wordGoal || 1" /></div>
       </aside>
       <main class="flex-1 min-w-0 p-4 sm:p-6 space-y-4">
@@ -185,7 +191,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', shortcut))
       </main>
     </div>
     <USlideover v-model:open="mobileSidebar" side="left" title="Documents" description="Browse every folder and document.">
-      <template #body><div class="flex justify-between mb-3"><UButton color="neutral" variant="ghost" @click="openFolder(project.folders.find(folder => folder.path === '')!)">All folders</UButton><UButton icon="i-lucide-folder-plus" aria-label="New top-level folder" @click="mobileSidebar = false; newFolder('')" /></div><FolderTree :project="project" path="" :selected-folder="folderPath" :selected-id="selectedId" @folder="openFolder" @document="select" @reorder="reorder" /></template>
+      <template #body><div class="flex justify-between mb-3"><UButton color="neutral" variant="ghost" @click="openFolder(project.folders.find(folder => folder.path === '')!)">All folders</UButton><UButton icon="i-lucide-folder-plus" aria-label="New top-level folder" @click="mobileSidebar = false; newFolder('')" /></div><FolderTree :project="project" path="" :selected-folder="folderPath" :selected-id="selectedId" @folder="openFolder" @document="doc => select(doc, false)" @reorder="reorder" /></template>
     </USlideover>
     <USlideover v-model:open="inspector" title="Details" description="Edit document metadata and links.">
       <template #body><DocumentDetails v-if="details" :fields="details.fields" :dirty="details.dirty" :saving="saving" @edit="editDetails" @reset="reset" @save="saveDetails" @open="doc => { inspector = false; select(doc) }" @history="inspector = false; historyOpen = true" @move="inspector = false; moveOpen = true" /></template>
@@ -193,6 +199,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', shortcut))
     <CreateDocumentModal v-model:open="createOpen" kind="document" :folder="createTarget" @created="created" />
     <CreateFolderModal v-model:open="folderOpen" :parent="folderParent" />
     <ProjectSettingsModal v-model:open="settingsOpen" />
+    <ThemeModal v-model:open="themeOpen" />
     <DocumentSearchModal v-model:open="searchOpen" @select="select" />
     <DocumentHistoryModal v-model:open="historyOpen" @restored="view = 'write'; reading = false" />
     <DocumentMoveModal v-model:open="moveOpen" />

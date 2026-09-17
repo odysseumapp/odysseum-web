@@ -6,8 +6,8 @@ export default defineNuxtConfig({
   modules: ['@nuxt/ui', '@vite-pwa/nuxt'],
   css: ['~/assets/css/main.css'],
   ui: { fonts: false },
-  // Folder icons are chosen at runtime (see services/FolderStructure.ts), so the scan cannot find them.
-  icon: { clientBundle: { scan: true, icons: ['lucide:book-open', 'lucide:book-text', 'lucide:users', 'lucide:user-round', 'lucide:map', 'lucide:map-pin', 'lucide:git-branch', 'lucide:route', 'lucide:notebook-pen', 'lucide:sticky-note', 'lucide:folder', 'lucide:circle', 'lucide:circle-check', 'lucide:arrow-left-right', 'lucide:x', 'lucide:grid-3x3', 'lucide:file-text', 'lucide:chevron-right', 'lucide:chevron-down'] } },
+  // Folder and document icons are chosen at runtime (see services/FolderStructure.ts), so the scan cannot find them.
+  icon: { clientBundle: { scan: true, icons: ['lucide:book-open', 'lucide:users', 'lucide:user-round', 'lucide:map', 'lucide:map-pin', 'lucide:git-branch', 'lucide:route', 'lucide:notebook-pen', 'lucide:sticky-note', 'lucide:folder', 'lucide:circle', 'lucide:circle-check', 'lucide:arrow-left-right', 'lucide:x', 'lucide:grid-3x3', 'lucide:file-text', 'lucide:chevron-right', 'lucide:chevron-down'] } },
   app: { baseURL: '/webui/', head: { title: 'Odysseum', htmlAttrs: { lang: 'en' } } },
   experimental: { appManifest: false },
   // Only the development server proxies API requests. Release output is plain static files.

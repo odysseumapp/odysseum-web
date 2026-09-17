@@ -26,6 +26,14 @@ export interface SessionInfo { authenticated: boolean; passwordRequired: boolean
 export interface ServerSettings { allowDeletingDefaultFolders: boolean }
 export interface SearchResult { document: DocumentSummary; excerpt: string }
 
+/** Every part of the interface a theme colours. */
+export const themeRoles = ['primary', 'secondary', 'success', 'info', 'warning', 'error', 'neutral'] as const
+export type ThemeRole = typeof themeRoles[number]
+/** One Tailwind palette name per role, such as `{ primary: 'emerald', … }`. */
+export type ThemeColors = Record<ThemeRole, string>
+/** A colour scheme saved on the server, one JSON file per name. */
+export interface Theme { name: string; colors: ThemeColors }
+
 /** The editable details of a scene, as shown in the inspector. */
 export interface MetadataFields { title: string; synopsis: string; notes: string; status: DocumentStatus; wordGoal: number; links: string[]; linkNotes: Record<string, string> }
 

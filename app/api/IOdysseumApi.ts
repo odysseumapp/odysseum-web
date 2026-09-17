@@ -1,4 +1,4 @@
-import type { DocumentContent, FolderLayout, MetadataFields, Project, ProjectInfo, ProjectSettings, SearchResult, ServerSettings, SessionInfo, Snapshot } from '../models'
+import type { DocumentContent, FolderLayout, MetadataFields, Project, ProjectInfo, ProjectSettings, SearchResult, ServerSettings, SessionInfo, Snapshot, Theme } from '../models'
 
 /** Every server endpoint, typed. Nothing else in the app builds a URL. */
 export interface IOdysseumApi {
@@ -7,6 +7,10 @@ export interface IOdysseumApi {
   logout(): Promise<void>
   getServerSettings(): Promise<ServerSettings>
   updateServerSettings(settings: ServerSettings): Promise<ServerSettings>
+
+  listThemes(): Promise<Theme[]>
+  saveTheme(theme: Theme): Promise<Theme>
+  deleteTheme(name: string): Promise<void>
 
   listProjects(): Promise<ProjectInfo[]>
   createProject(title: string, wordGoal?: number): Promise<ProjectInfo>

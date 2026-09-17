@@ -1,23 +1,17 @@
 import type { DocumentKind, DocumentSummary, FolderSummary, Project } from '../models'
-import { folderDocumentPath, isFolderDocument } from './FileNames'
+import { folderDocumentPath, isFolderDocument, kindFor } from './FileNames'
 
 export const defaultFolders = ['Manuscript', 'Characters', 'Locations', 'Threads', 'Notes']
 /** Created with every project so a manuscript has somewhere to start. */
 export const defaultSubfolders = ['Manuscript/Chapter 01']
 export const isDefaultFolder = (path: string) => defaultFolders.some(name => name.toLocaleLowerCase() === path.toLocaleLowerCase())
 
-const folderIcons: Record<string, [top: string, nested: string]> = {
-  manuscript: ['i-lucide-book-open', 'i-lucide-book-text'],
-  characters: ['i-lucide-user-round', 'i-lucide-users'],
-  locations: ['i-lucide-map', 'i-lucide-map-pin'],
-  threads: ['i-lucide-git-branch', 'i-lucide-route'],
-  notes: ['i-lucide-notebook-pen', 'i-lucide-sticky-note'],
-}
+/** The top-level folders whose name says what kind of documents they hold. */
+const kindFolders = new Set(['manuscript', 'characters', 'locations', 'threads', 'notes', 'research', 'story notes'])
 /** Default folders and everything inside them show what kind of content they hold; other folders stay plain. */
 export function folderIcon(path: string) {
-  const [top = '', ...rest] = path.split('/')
-  const icons = folderIcons[top.toLowerCase()]
-  return icons ? icons[rest.length ? 1 : 0] : 'i-lucide-folder'
+  const top = path.split('/')[0]?.toLowerCase() ?? ''
+  return kindFolders.has(top) ? kindFolderIcons[kindFor(path)] : 'i-lucide-folder'
 }
 export const parentPath = (path: string) => path.split('/').slice(0, -1).join('/')
 export const folderFor = (path: string, title = ''): FolderSummary => ({
@@ -65,7 +59,10 @@ export function descendantDocuments(project: Project, path: string): DocumentSum
 
 export const kindOrder: DocumentKind[] = ['thread', 'character', 'location', 'scene', 'note']
 export const kindLabels: Record<DocumentKind, string> = { thread: 'Thread', character: 'Character', location: 'Location', scene: 'Scene', note: 'Note' }
-export const kindIcons: Record<DocumentKind, string> = { thread: 'i-lucide-git-branch', character: 'i-lucide-user-round', location: 'i-lucide-map-pin', scene: 'i-lucide-file-text', note: 'i-lucide-sticky-note' }
+/** One document of a kind. */
+export const kindIcons: Record<DocumentKind, string> = { thread: 'i-lucide-route', character: 'i-lucide-user-round', location: 'i-lucide-map-pin', scene: 'i-lucide-file-text', note: 'i-lucide-sticky-note' }
+/** Many of them: what a folder holding that kind shows, at every depth. */
+export const kindFolderIcons: Record<DocumentKind, string> = { thread: 'i-lucide-git-branch', character: 'i-lucide-users', location: 'i-lucide-map', scene: 'i-lucide-book-open', note: 'i-lucide-notebook-pen' }
 
 /** Links are undirected: either side listing the other counts. */
 export const linked = (a: DocumentSummary, b: DocumentSummary) => a.id !== b.id && (a.links.includes(b.id) || b.links.includes(a.id))
