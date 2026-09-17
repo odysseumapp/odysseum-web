@@ -39,3 +39,12 @@ export function kindFor(path: string): DocumentKind {
 }
 
 export const isStoryNote = (path: string) => kindFor(path) !== 'scene'
+
+/** Every folder owns one hidden document, `.Name.md`, that opens when the folder is opened. It counts toward nothing. */
+export const folderDocumentPath = (folder: string) => `${folder}/.${folder.split('/').at(-1)}.md`
+export function isFolderDocument(path: string) {
+  const parts = path.split('/')
+  return parts.length >= 2 && parts[parts.length - 1] === `.${parts[parts.length - 2]}.md`
+}
+/** A manuscript scene that counts toward word goals and export. */
+export const isScene = (path: string) => !isStoryNote(path) && !isFolderDocument(path)

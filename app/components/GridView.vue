@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { DocumentSummary, FolderLayout, FolderSummary, Project } from '~/models'
-import { descendantDocuments, folderItems, gridColumnFolder, kindIcons, linked, type FolderItem } from '~/services/FolderStructure'
+import { descendantDocuments, folderDocument, folderItems, gridColumnFolder, kindIcons, linked, type FolderItem } from '~/services/FolderStructure'
 const props = defineProps<{ project: Project; path: string }>()
 const emit = defineEmits<{ open: [item: FolderItem]; layout: [patch: Partial<FolderLayout>]; assign: [doc: DocumentSummary, links: string[]]; createDocument: [path: string] }>()
 const folder = computed(() => props.project.folders.find(item => item.path === props.path))
@@ -9,12 +9,12 @@ const columnFolder = computed(() => gridColumnFolder(props.project, props.path))
 const columns = computed(() => columnFolder.value ? descendantDocuments(props.project, columnFolder.value.path) : [])
 const folderChoices = computed(() => props.project.folders.filter(item => item.path && item.path !== props.path).map(item => ({ label: item.path, value: item.id })))
 /** Rows are this folder's documents in order; each subfolder is a group that collapses into a roll-up of its members. */
-type Row = { doc: DocumentSummary; depth: number; group?: never; members?: never } | { group: FolderSummary; depth: number; members: DocumentSummary[]; doc?: never }
+type Row = { doc: DocumentSummary; depth: number; group?: never; members?: never; own?: never } | { group: FolderSummary; depth: number; members: DocumentSummary[]; own?: DocumentSummary; doc?: never }
 const collapsed = ref(new Set<string>())
 const rows = computed<Row[]>(() => {
   const walk = (path: string, depth: number): Row[] => folderItems(props.project, path).flatMap(item => item.document
     ? [{ doc: item.document, depth }]
-    : [{ group: item.folder, depth, members: descendantDocuments(props.project, item.folder.path) }, ...(collapsed.value.has(item.folder.path) ? [] : walk(item.folder.path, depth + 1))])
+    : [{ group: item.folder, depth, members: descendantDocuments(props.project, item.folder.path), own: folderDocument(props.project, item.folder) }, ...(collapsed.value.has(item.folder.path) ? [] : walk(item.folder.path, depth + 1))])
   return walk(props.path, 0)
 })
 function toggleGroup(path: string) {
@@ -64,8 +64,17 @@ const choose = (id: unknown) => { if (typeof id === 'string' && id !== columnFol
               </th>
               <td v-for="col in columns" :key="col.id" class="relative bg-elevated border-b border-r border-default p-2 align-middle">
                 <div class="absolute inset-y-0 left-1/2 w-1 -translate-x-1/2 bg-primary/30" aria-hidden="true" />
-                <div v-if="collapsed.has(row.group.path)" class="relative flex flex-wrap gap-1">
-                  <UButton v-for="doc in row.members.filter(member => linked(member, col))" :key="doc.id" size="xs" color="primary" variant="soft" class="max-w-full" :aria-label="`Open ${doc.title}`" @click="emit('open', itemOf(doc))"><span class="truncate">{{ doc.title }}</span></UButton>
+                <div class="relative flex flex-wrap items-center justify-center gap-1">
+                  <template v-if="row.own && row.own.id !== col.id">
+                    <div v-if="linked(row.own, col)" class="flex items-center gap-1 rounded-md border border-primary bg-default px-2 py-1 max-w-full">
+                      <UIcon name="i-lucide-circle-check" class="size-4 shrink-0 text-primary" /><span class="truncate text-xs">{{ col.title }}</span>
+                      <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-x" :aria-label="`Unlink ${row.group.name} from ${col.title}`" @click="toggle(row.own, col)" />
+                    </div>
+                    <UButton v-else size="xs" color="neutral" variant="outline" icon="i-lucide-plus" class="bg-default" :aria-label="`Link ${row.group.name} to ${col.title}`" :title="`Link ${row.group.name} to ${col.title}`" @click="toggle(row.own, col)" />
+                  </template>
+                  <template v-if="collapsed.has(row.group.path)">
+                    <UButton v-for="doc in row.members.filter(member => linked(member, col))" :key="doc.id" size="xs" color="primary" variant="soft" class="max-w-full" :aria-label="`Open ${doc.title}`" @click="emit('open', itemOf(doc))"><span class="truncate">{{ doc.title }}</span></UButton>
+                  </template>
                 </div>
               </td>
             </template>

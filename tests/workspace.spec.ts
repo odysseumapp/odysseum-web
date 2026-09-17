@@ -146,6 +146,8 @@ test('every folder has a grid of its documents against another folder, with coll
   }).toEqual([[race.document.id], [second.document.id]])
   await grid.getByRole('button', { name: 'Link Nested point to Meet Cute', exact: true }).click()
   await expect.poll(async () => (await project(page.request, info.slug)).documents.find(doc => doc.id === nested.document.id)?.links).toEqual([cute.document.id])
+  await grid.getByRole('button', { name: 'Link Nested to Meet Cute', exact: true }).click()
+  await expect.poll(async () => (await project(page.request, info.slug)).documents.find(doc => doc.path === 'Characters/Race/Nested/.Nested.md')?.links).toEqual([cute.document.id])
   // Collapsing a subfolder rolls its linked documents up into the group row.
   await grid.getByRole('button', { name: 'Collapse Race', exact: true }).click()
   await expect(grid.getByRole('rowheader').filter({ hasText: 'Nested point' })).toBeHidden()
@@ -178,11 +180,10 @@ test('every folder has a grid of its documents against another folder, with coll
   await expect(page.getByLabel('Corkboard', { exact: true }).getByLabel('Linked documents').filter({ hasText: 'Race' }).first()).toBeVisible()
 })
 
-test('folder stacks keep the view, pins persist, named documents open and empty folders can be removed', async ({ page }) => {
+test('folder stacks keep the view, pins persist, folders open their own document and empty folders can be removed', async ({ page }) => {
   const info = await createProject(page.request)
   const first = await createDoc(page.request, info.slug, 'First', 'Manuscript/Part')
   const second = await createDoc(page.request, info.slug, 'Second', 'Manuscript/Part')
-  await createDoc(page.request, info.slug, 'Part', 'Manuscript/Part', 'Folder introduction.')
   await page.goto(projectUrl(info.slug))
   await chooseSection(page, 'Manuscript')
   await page.getByRole('tab', { name: 'Corkboard' }).click()
@@ -196,7 +197,11 @@ test('folder stacks keep the view, pins persist, named documents open and empty 
   await outline.locator(`[data-item-key="${second.document.id}"]`).dragTo(outline.locator(`[data-item-key="${first.document.id}"]`))
   await expect(outline.locator('[data-item-key]').first()).toHaveAttribute('data-item-key', first.document.id)
   await chooseSection(page, 'Manuscript/Part')
-  await expect(editor(page)).toContainText('Folder introduction.')
+  await expect(page.getByRole('heading', { name: 'Part', exact: true })).toBeVisible()
+  await editor(page).fill('Folder introduction.')
+  await expect.poll(() => readFile(path.resolve('.test-data/workspace', info.slug, 'Manuscript/Part/.Part.md'), 'utf8')).toContain('Folder introduction.')
+  await expect(page.locator('aside').getByRole('button', { name: 'Open Part', exact: true })).toBeHidden()
+  await expect(page.locator('aside').getByRole('button', { name: 'Open First', exact: true })).toBeVisible()
   await chooseSection(page, 'Notes')
   await page.getByRole('tab', { name: 'Grid', exact: true }).click()
   await page.getByRole('button', { name: 'Pin view for this folder' }).click()
@@ -319,6 +324,9 @@ test('history, search, file moves, ordering, settings, export and router navigat
   await expect(page.getByRole('heading', { name: 'Projects', exact: true })).toBeVisible()
   await page.goBack()
   await expect(page).toHaveURL(projectUrl(info.slug))
+  // The project reopens on what was last open: the Manuscript folder's own document.
+  await expect(page.getByRole('heading', { name: 'Manuscript', exact: true })).toBeVisible()
+  await page.locator('aside').getByRole('button', { name: 'Open Another scene', exact: true }).click()
   await expect(editor(page)).toContainText('Original paragraph.')
 })
 

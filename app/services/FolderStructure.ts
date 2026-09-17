@@ -1,4 +1,5 @@
 import type { DocumentKind, DocumentSummary, FolderSummary, Project } from '../models'
+import { folderDocumentPath, isFolderDocument } from './FileNames'
 
 export const defaultFolders = ['Manuscript', 'Characters', 'Locations', 'Threads', 'Notes']
 /** Created with every project so a manuscript has somewhere to start. */
@@ -43,7 +44,8 @@ export function folderItems(project: Project, path: string): FolderItem[] {
   const folder = project.folders.find(item => item.path === path)
   const items: FolderItem[] = [
     ...project.folders.filter(item => item.parent === path).map(item => ({ key: `folder:${item.name}`, title: item.name, folder: item })),
-    ...project.documents.filter(doc => doc.folder === path).sort((a, b) => a.order - b.order).map(doc => ({ key: doc.id, title: doc.title, document: doc })),
+    // A folder's own document is reached by opening the folder, not listed beside its contents.
+    ...project.documents.filter(doc => doc.folder === path && !isFolderDocument(doc.path)).sort((a, b) => a.order - b.order).map(doc => ({ key: doc.id, title: doc.title, document: doc })),
   ]
   const ranks = new Map((folder?.itemOrder ?? []).map((key, index) => [key, index]))
   // Default folders keep their conventional order until the writer rearranges the root.
@@ -90,6 +92,5 @@ export function gridColumnFolder(project: Project, path: string) {
 }
 
 export function folderDocument(project: Project, folder: FolderSummary) {
-  return project.documents.find(doc => doc.folder === folder.path
-    && doc.path.split('/').at(-1)?.replace(/\.(md|markdown|txt)$/i, '').toLocaleLowerCase() === folder.name.toLocaleLowerCase())
+  return folder.path ? project.documents.find(doc => doc.path === folderDocumentPath(folder.path)) : undefined
 }

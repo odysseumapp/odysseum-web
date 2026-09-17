@@ -5,6 +5,7 @@ import { OdysseumApi } from '../api/OdysseumApi'
 import { ApiError, OFFLINE_MESSAGE, isOffline } from '../api/IApiClient'
 import type { IOdysseumApi } from '../api/IOdysseumApi'
 import type { DocumentContent, DocumentSummary, FolderLayout, MetadataFields, Project, ProjectInfo, ProjectSettings, ServerSettings } from '../models'
+import { isFolderDocument } from '../services/FileNames'
 import { downloadText, exportMarkdown } from '../services/ManuscriptExport'
 import { searchManuscript } from '../services/ManuscriptSearch'
 import { ProjectSession } from '../services/ProjectSession'
@@ -230,7 +231,8 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
       rememberProject(next)
       let last: string | null = null
       try { last = localStorage.getItem(`odysseum:${project.value?.id}:last-document`) } catch { /* Storage may be unavailable. */ }
-      const first = project.value?.documents.find(doc => doc.id === last) ?? project.value?.documents[0]
+      // A folder's own hidden document is reached through its folder, so a fresh visit starts on a real document.
+      const first = project.value?.documents.find(doc => doc.id === last) ?? project.value?.documents.find(doc => !isFolderDocument(doc.path)) ?? project.value?.documents[0]
       if (first) await open(first.id)
     } finally { loading.value = false }
   }
