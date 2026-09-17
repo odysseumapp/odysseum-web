@@ -6,7 +6,8 @@ import { publishView } from './ProjectView'
 import { folderItems } from '../services/FolderStructure'
 
 const fields = (doc: DocumentSummary | MetadataFields): MetadataFields =>
-  ({ title: doc.title, synopsis: doc.synopsis, notes: doc.notes, status: doc.status, wordGoal: doc.wordGoal, links: [...(doc.links ?? [])].sort() })
+  ({ title: doc.title, synopsis: doc.synopsis, notes: doc.notes, status: doc.status, wordGoal: doc.wordGoal, links: [...(doc.links ?? [])].sort(),
+    linkNotes: Object.fromEntries(Object.entries(doc.linkNotes ?? {}).filter(([, note]) => note).sort(([a], [b]) => a < b ? -1 : 1)) })
 const same = (a: MetadataFields, b: MetadataFields) => JSON.stringify(fields(a)) === JSON.stringify(fields(b))
 
 /**

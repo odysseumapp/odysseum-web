@@ -2,7 +2,7 @@
 import type { DocumentSummary, FolderLayout, FolderSummary, Project } from '~/models'
 import { descendantDocuments, folderDocument, folderItems, gridColumnFolder, kindIcons, linked, type FolderItem } from '~/services/FolderStructure'
 const props = defineProps<{ project: Project; path: string }>()
-const emit = defineEmits<{ open: [item: FolderItem]; layout: [patch: Partial<FolderLayout>]; assign: [doc: DocumentSummary, links: string[]]; createDocument: [path: string] }>()
+const emit = defineEmits<{ open: [item: FolderItem]; layout: [patch: Partial<FolderLayout>]; assign: [doc: DocumentSummary, links: string[]]; synopsis: [doc: DocumentSummary, synopsis: string]; note: [doc: DocumentSummary, col: DocumentSummary, note: string]; createDocument: [path: string] }>()
 const folder = computed(() => props.project.folders.find(item => item.path === props.path))
 // Columns are every document of one other folder: Threads unless you are in it, then Manuscript.
 const columnFolder = computed(() => gridColumnFolder(props.project, props.path))
@@ -28,13 +28,22 @@ function toggle(doc: DocumentSummary, col: DocumentSummary) {
   const links = allLinks(doc)
   emit('assign', doc, linked(doc, col) ? links.filter(id => id !== col.id) : [...links, col.id])
 }
+// One synopsis is edited in place at a time: Enter or leaving the field saves, Escape discards.
+const editing = ref('')
+const draft = ref('')
+function editSynopsis(doc: DocumentSummary) { editing.value = doc.id; draft.value = doc.synopsis }
+function finishSynopsis(doc: DocumentSummary, keep: boolean) {
+  if (editing.value !== doc.id) return
+  editing.value = ''
+  if (keep && draft.value.trim() !== doc.synopsis.trim()) emit('synopsis', doc, draft.value.trim())
+}
 const choose = (id: unknown) => { if (typeof id === 'string' && id !== columnFolder.value?.id) emit('layout', { gridFolder: id }) }
 </script>
 
 <template>
   <div class="space-y-4 min-w-0">
     <div class="flex flex-wrap items-center gap-2">
-      <p class="text-sm text-muted mr-auto">Rows are the documents in {{ folder?.name || 'the project' }}; columns are the documents in the folder you pick. A mark sits where the two are linked.</p>
+      <p class="text-sm text-muted mr-auto">Rows are the documents in {{ folder?.name || 'the project' }}; columns are the documents in the folder you pick. A mark sits where the two are linked; click it to leave a note there.</p>
       <USelect :model-value="columnFolder?.id ?? ''" :items="folderChoices" aria-label="Columns from folder" class="w-56" @update:model-value="choose" />
       <UButton v-if="columnFolder" icon="i-lucide-plus" variant="soft" @click="emit('createDocument', columnFolder.path)">New in {{ columnFolder.name }}</UButton>
     </div>
@@ -65,13 +74,7 @@ const choose = (id: unknown) => { if (typeof id === 'string' && id !== columnFol
               <td v-for="col in columns" :key="col.id" class="relative bg-elevated border-b border-r border-default p-2 align-middle">
                 <div class="absolute inset-y-0 left-1/2 w-1 -translate-x-1/2 bg-primary/30" aria-hidden="true" />
                 <div class="relative flex flex-wrap items-center justify-center gap-1">
-                  <template v-if="row.own && row.own.id !== col.id">
-                    <div v-if="linked(row.own, col)" class="flex items-center gap-1 rounded-md border border-primary bg-default px-2 py-1 max-w-full">
-                      <UIcon name="i-lucide-circle-check" class="size-4 shrink-0 text-primary" /><span class="truncate text-xs">{{ col.title }}</span>
-                      <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-x" :aria-label="`Unlink ${row.group.name} from ${col.title}`" @click="toggle(row.own, col)" />
-                    </div>
-                    <UButton v-else size="xs" color="neutral" variant="outline" icon="i-lucide-plus" class="bg-default" :aria-label="`Link ${row.group.name} to ${col.title}`" :title="`Link ${row.group.name} to ${col.title}`" @click="toggle(row.own, col)" />
-                  </template>
+                  <GridLink v-if="row.own && row.own.id !== col.id" :doc="row.own" :col="col" :name="row.group.name" @toggle="toggle(row.own, col)" @note="note => emit('note', row.own!, col, note)" />
                   <template v-if="collapsed.has(row.group.path)">
                     <UButton v-for="doc in row.members.filter(member => linked(member, col))" :key="doc.id" size="xs" color="primary" variant="soft" class="max-w-full" :aria-label="`Open ${doc.title}`" @click="emit('open', itemOf(doc))"><span class="truncate">{{ doc.title }}</span></UButton>
                   </template>
@@ -79,17 +82,26 @@ const choose = (id: unknown) => { if (typeof id === 'string' && id !== columnFol
               </td>
             </template>
             <template v-else>
-              <th scope="row" class="sticky left-0 z-10 bg-default border-b border-r border-default p-2 align-middle text-left font-normal" :style="{ paddingLeft: `${8 + row.depth * 16}px` }">
-                <CollectionCard :item="itemOf(row.doc)" compact @open="emit('open', itemOf(row.doc))" />
+              <th scope="row" class="sticky left-0 z-10 bg-default border-b border-r border-default p-2 align-middle text-left font-normal w-72 max-w-72" :style="{ paddingLeft: `${8 + row.depth * 16}px` }">
+                <CollectionCard :item="itemOf(row.doc)" compact @open="emit('open', itemOf(row.doc))">
+                  <UTextarea
+                    v-if="editing === row.doc.id" v-model="draft" autofocus autoresize :rows="2" :maxrows="8" size="sm" class="w-full mt-2"
+                    :aria-label="`Synopsis of ${row.doc.title}`" placeholder="What happens here?"
+                    @blur="finishSynopsis(row.doc, true)" @keydown.enter.exact.prevent="finishSynopsis(row.doc, true)" @keydown.esc.prevent.stop="finishSynopsis(row.doc, false)"
+                  />
+                  <button
+                    v-else type="button" class="group flex items-start gap-1 w-full mt-2 text-left text-xs text-muted hover:text-default rounded focus-visible:outline-2 focus-visible:outline-primary"
+                    :aria-label="`Edit synopsis of ${row.doc.title}`" :title="'Edit synopsis'" @click="editSynopsis(row.doc)"
+                  >
+                    <span class="line-clamp-3 whitespace-pre-line break-words" :class="{ italic: !row.doc.synopsis }">{{ row.doc.synopsis || 'Add a synopsis' }}</span>
+                    <UIcon name="i-lucide-pencil" class="size-3 shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100" />
+                  </button>
+                </CollectionCard>
               </th>
               <td v-for="col in columns" :key="col.id" class="relative border-b border-r border-default p-2 align-middle">
                 <div class="absolute inset-y-0 left-1/2 w-1 -translate-x-1/2 bg-primary/30" aria-hidden="true" />
                 <div v-if="col.id === row.doc.id" class="relative" />
-                <div v-else-if="linked(row.doc, col)" class="relative mx-auto flex items-center gap-1 rounded-md border border-primary bg-default px-2 py-1 max-w-full w-fit">
-                  <UIcon name="i-lucide-circle-check" class="size-4 shrink-0 text-primary" /><span class="truncate text-xs">{{ col.title }}</span>
-                  <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-x" :aria-label="`Unlink ${row.doc.title} from ${col.title}`" @click="toggle(row.doc, col)" />
-                </div>
-                <UButton v-else size="xs" color="neutral" variant="outline" icon="i-lucide-plus" class="relative mx-auto flex bg-default" :aria-label="`Link ${row.doc.title} to ${col.title}`" :title="`Link ${row.doc.title} to ${col.title}`" @click="toggle(row.doc, col)" />
+                <GridLink v-else :doc="row.doc" :col="col" :name="row.doc.title" @toggle="toggle(row.doc, col)" @note="note => emit('note', row.doc, col, note)" />
               </td>
             </template>
           </tr>

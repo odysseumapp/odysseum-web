@@ -8,7 +8,7 @@ import type { SyncContext } from './SyncContext'
 export function overlay(server: Project, ops: PendingOp[], documents: Map<string, MirroredDocument>): Project {
   let settings: ProjectSettings = server.settings
   let folders = completeFolders(server.folders, server.documents, settings.title)
-  let list: DocumentSummary[] = server.documents.map(doc => ({ ...doc, links: [...(doc.links ?? [])] }))
+  let list: DocumentSummary[] = server.documents.map(doc => ({ ...doc, links: [...(doc.links ?? [])], linkNotes: { ...(doc.linkNotes ?? {}) } }))
   for (const { op } of ops) {
     switch (op.type) {
       case 'createFolder':
@@ -36,7 +36,14 @@ export function overlay(server: Project, ops: PendingOp[], documents: Map<string
           if (before.has(other.id) && !after.has(other.id)) other.links = other.links.filter(id => id !== op.id)
           if (after.has(other.id) && !other.links.includes(op.id)) other.links = [...other.links, op.id]
         }
-        Object.assign(doc, op.fields)
+        // A note is shared by both ends of its link and goes when the link does.
+        const notes = Object.fromEntries(Object.entries(op.fields.linkNotes ?? doc.linkNotes).filter(([id, note]) => after.has(id) && note.trim()).map(([id, note]) => [id, note.trim()]))
+        for (const other of list) {
+          if (other.id === op.id || !(op.id in other.linkNotes || other.id in notes)) continue
+          const { [op.id]: _, ...rest } = other.linkNotes
+          other.linkNotes = other.id in notes ? { ...rest, [op.id]: notes[other.id]! } : rest
+        }
+        Object.assign(doc, op.fields, { linkNotes: notes })
         break
       }
       case 'move': {
@@ -66,7 +73,7 @@ export function summaryFor(op: Extract<LocalOp, { type: 'create' }>, existing: D
     id: op.id, path: op.path, title: op.title, folder: op.folder, synopsis: '', notes: '', status: 'draft',
     wordGoal: settings.defaultSceneWordGoal, order: existing.length ? Math.max(...existing.map(doc => doc.order)) + 1 : 0,
     wordCount: countWords(op.content), revision: '', lastModified: new Date().toISOString(),
-    kind: kindFor(op.path), links: [],
+    kind: kindFor(op.path), links: [], linkNotes: {},
   }
 }
 

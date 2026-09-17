@@ -110,6 +110,9 @@ async function reorder(path: string, from: string, to: string) {
 const layout = (patch: Partial<FolderLayout>) => run(() => workspace.saveFolderLayout(folderPath.value, patch))
 // Linking or unlinking from the grid is an ordinary metadata change on that document.
 const assign = (doc: DocumentSummary, links: string[]) => run(() => workspace.saveDetails(doc.id, { ...metadataOf(doc), links }, metadataOf(doc)))
+// A note on a link is shared by both ends; saving it from the row's document updates the column's too.
+const annotate = (doc: DocumentSummary, col: DocumentSummary, note: string) => run(() => workspace.saveDetails(doc.id, { ...metadataOf(doc), linkNotes: { ...metadataOf(doc).linkNotes, [col.id]: note } }, metadataOf(doc)))
+const describe =(doc: DocumentSummary, synopsis: string) => run(() => workspace.saveDetails(doc.id, { ...metadataOf(doc), synopsis }, metadataOf(doc)))
 const pin = () => run(() => workspace.saveFolderLayout(folderPath.value, { pinnedView: currentFolder.value?.pinnedView === view.value ? null : view.value }))
 const removeFolder = () => run(async () => {
   const path = folderPath.value
@@ -161,7 +164,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', shortcut))
           <UButton icon="i-lucide-folder-plus" color="neutral" variant="outline" @click="newFolder()">New folder</UButton>
           <UButton v-if="folderPath" icon="i-lucide-folder-minus" color="neutral" variant="ghost" :disabled="!canRemoveFolder || busy" aria-label="Remove empty folder" :title="protectedFolder ? 'Default folders can be removed once the server setting allows it' : 'Only empty folders can be removed'" @click="removeFolder" />
         </div>
-        <GridView v-if="view === 'grid' && !focus" :project="project" :path="folderPath" @open="openItem" @layout="layout" @assign="assign" @create-document="path => newDocument(path, true)" />
+        <GridView v-if="view === 'grid' && !focus" :project="project" :path="folderPath" @open="openItem" @layout="layout" @assign="assign" @synopsis="describe" @note="annotate"@create-document="path => newDocument(path, true)" />
         <CollectionView v-else-if="(view === 'board' || view === 'outline') && !focus" :items="items" :path="folderPath" :view="view" @open="openItem" @reorder="reorder" />
         <template v-else-if="active && (active.document.folder === folderPath || focus)">
           <header class="flex flex-wrap items-center justify-between gap-3"><h1 class="text-xl font-semibold break-words">{{ active.document.title }}</h1><UButton v-if="!focus" color="neutral" variant="outline" icon="i-lucide-panel-right" @click="inspector = true">Details</UButton></header>

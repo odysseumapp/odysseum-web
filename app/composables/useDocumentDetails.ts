@@ -4,7 +4,7 @@ import { renameInOp } from '~/storage/IMirrorStore'
 interface DetailsDraft { fields: MetadataFields; base: MetadataFields; dirty: boolean }
 export const metadataOf = (doc: DocumentSummary): MetadataFields => ({
   title: doc.title, synopsis: doc.synopsis, notes: doc.notes, status: doc.status, wordGoal: doc.wordGoal,
-  links: [...(doc.links ?? [])],
+  links: [...(doc.links ?? [])], linkNotes: { ...(doc.linkNotes ?? {}) },
 })
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value))
 
@@ -42,6 +42,7 @@ export function useDocumentDetails() {
         if (stored) {
           draft = JSON.parse(stored) as DetailsDraft
           draft.fields.links ??= []; draft.base.links ??= []
+          draft.fields.linkNotes ??= {}; draft.base.linkNotes ??= {}
         }
       } catch { /* Use the document when a saved draft cannot be read. */ }
     }
