@@ -1,9 +1,9 @@
 import type { Project } from '../models'
-import { isStoryNote } from './FileNames'
+import { isScene } from './FileNames'
 
 /** The manuscript as one Markdown file, in order, story notes excluded; the same shape the server exports. */
 export function exportMarkdown(project: Project, content: (id: string) => string) {
-  const scenes = project.documents.filter(doc => !isStoryNote(doc.path))
+  const scenes = project.documents.filter(doc => isScene(doc.path))
   return `# ${project.settings.title}\n\n` + scenes.map(doc => `## ${doc.title}\n\n${content(doc.id).trim()}`).join('\n\n---\n\n') + '\n'
 }
 

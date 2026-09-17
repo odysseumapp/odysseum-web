@@ -1,5 +1,5 @@
 import type { DocumentSummary, FolderLayout, MetadataFields, ProjectSettings } from '../models'
-import { pathFor } from '../services/FileNames'
+import { isFolderDocument, pathFor } from '../services/FileNames'
 import type { LocalOp, PendingOp } from '../storage'
 import type { ILocalChanges } from './ILocalChanges'
 import { publishView, summaryFor } from './ProjectView'
@@ -73,7 +73,8 @@ export class LocalChanges implements ILocalChanges {
   async removeFolder(path: string) {
     return this.context.mutations.run(async () => {
       const view = await publishView(this.context)
-      if (!path || view?.documents.some(doc => doc.folder === path || doc.folder.startsWith(path + '/'))
+      // The folder's own hidden document goes with it; anything else makes the folder non-empty.
+      if (!path || view?.documents.some(doc => (doc.folder === path && !isFolderDocument(doc.path)) || doc.folder.startsWith(path + '/'))
         || view?.folders.some(folder => folder.parent === path)) throw new Error('Only empty folders can be removed.')
       await this.record({ type: 'removeFolder', path })
     })

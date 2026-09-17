@@ -2,6 +2,7 @@
 import { countWords, type DocumentSummary, type FolderLayout, type FolderSummary, type FolderView } from '~/models'
 import { metadataOf } from '~/composables/useDocumentDetails'
 import { folderDocument, folderItems, isDefaultFolder, parentPath, type FolderItem } from '~/services/FolderStructure'
+import { isScene } from '~/services/FileNames'
 
 const workspace = useWorkspace()
 const { project, active, selectedId, sync, notice, passwordRequired, allowDeletingDefaultFolders } = workspace
@@ -33,7 +34,7 @@ const conflictOpen = ref(false)
 const editor = ref<{ format: (type: string) => void }>()
 const rendered = ref('')
 const words = computed(() => countWords(active.value?.content ?? ''))
-const totalWords = computed(() => project.value?.documents.filter(doc => doc.kind === 'scene').reduce((sum, doc) => sum + (doc.id === selectedId.value ? words.value : doc.wordCount), 0) ?? 0)
+const totalWords = computed(() => project.value?.documents.filter(doc => isScene(doc.path)).reduce((sum, doc) => sum + (doc.id === selectedId.value ? words.value : doc.wordCount), 0) ?? 0)
 const savedState = computed(() => {
   if (active.value?.conflict) return 'Review changes'
   if (active.value?.error || sync.value.error) return 'Save interrupted'
@@ -83,13 +84,13 @@ async function openFolder(folder: FolderSummary, preserveView = false) {
   folderPath.value = folder.path
   mobileSidebar.value = false
   if (preserveView) return
-  const index = project.value && folderDocument(project.value, folder)
-  if (index) return select(index)
-  view.value = folder.pinnedView ?? 'board'
-  if (view.value === 'write') {
-    const first = project.value?.documents.find(doc => doc.folder === folder.path)
-    if (first) await select(first)
-  }
+  // Opening a folder opens its own document, unless the writer pinned a view for it.
+  view.value = folder.pinnedView ?? 'write'
+  if (view.value !== 'write') return
+  const own = project.value && folderDocument(project.value, folder)
+  const first = own ?? project.value?.documents.find(doc => doc.folder === folder.path)
+  if (first) await select(first)
+  else view.value = 'board'
 }
 function navigate(path: string) {
   const folder = project.value?.folders.find(folder => folder.path === path)
