@@ -1,11 +1,15 @@
 <script setup lang="ts">
 const workspace = useWorkspace()
-const { projects, passwordRequired } = workspace
+const { projects, templates, passwordRequired } = workspace
 const title = ref('')
+const template = ref('Default')
+// Offline this is the list the browser last saw; a failure here must not stand in the way of the projects.
+onMounted(() => { void workspace.loadTemplates().catch(() => {}) })
+watch(templates, list => { if (list.length && !list.some(item => item.name === template.value)) template.value = list.find(item => item.name === 'Default')?.name ?? list[0]!.name })
 const settingsOpen = ref(false)
 const themeOpen = ref(false)
 const { busy, error, run } = useTask()
-const create = () => run(async () => { await workspace.createProject(title.value); title.value = '' })
+const create = () => run(async () => { await workspace.createProject(title.value, template.value); title.value = '' })
 </script>
 
 <template>
@@ -26,6 +30,7 @@ const create = () => run(async () => { await workspace.createProject(title.value
       <template #header><h2 class="font-semibold">New project</h2></template>
       <form class="space-y-4" @submit.prevent="create">
         <UFormField label="Project title" required><UInput v-model="title" required maxlength="200" class="w-full" /></UFormField>
+        <UFormField v-if="templates.length" label="Template" help="The folders and documents the project starts with."><USelect v-model="template" :items="templates.map(item => item.name)" class="w-full" /></UFormField>
         <UButton type="submit" icon="i-lucide-plus" :loading="busy">Create project</UButton>
       </form>
     </UCard>

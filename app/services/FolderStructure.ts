@@ -1,9 +1,18 @@
-import type { DocumentKind, DocumentSummary, FolderSummary, Project } from '../models'
+import type { DocumentKind, DocumentSummary, FolderSummary, Project, ProjectTemplate } from '../models'
 import { folderDocumentPath, isFolderDocument, kindFor } from './FileNames'
 
 export const defaultFolders = ['Manuscript', 'Characters', 'Locations', 'Threads', 'Notes']
 /** Created with every project so a manuscript has somewhere to start. */
 export const defaultSubfolders = ['Manuscript/Chapter 01']
+/** The server's Default template as it ships, for a device that has never been able to ask for the real list. */
+export const defaultTemplate: ProjectTemplate = {
+  name: 'Default',
+  settings: { wordGoal: 50000, defaultSceneWordGoal: 1000 },
+  folders: ['', ...defaultFolders, ...defaultSubfolders].map(path => ({
+    path, pinnedView: null, itemOrder: path ? [] : defaultFolders.map(name => `folder:${name}`), gridFolder: null,
+  })),
+  documents: [{ path: 'Manuscript/Chapter 01/Scene 01.md', title: 'Scene 01' }],
+}
 export const isDefaultFolder = (path: string) => defaultFolders.some(name => name.toLocaleLowerCase() === path.toLocaleLowerCase())
 
 /** The top-level folders whose name says what kind of documents they hold. */

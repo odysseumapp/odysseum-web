@@ -48,7 +48,11 @@ export class OperationReplayer {
     const { api, mirror, listener } = this.context
     switch (op.type) {
       case 'createProject': {
-        const created = await api.createProject(op.title, op.settings.wordGoal)
+        // A template deleted since the project was made here is no reason to lose the project: it starts from Default instead.
+        const created = await api.createProject(op.title, op.settings.wordGoal, op.template).catch(ex => {
+          if (op.template && ex instanceof ApiError && ex.status === 404) return api.createProject(op.title, op.settings.wordGoal)
+          throw ex
+        })
         if (created.slug !== this.context.slug) {
           await mirror.renameProject(this.context.slug, created.slug)
           this.context.slug = created.slug

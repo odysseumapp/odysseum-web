@@ -4,7 +4,7 @@ import { FetchApiClient } from '../api/FetchApiClient'
 import { OdysseumApi } from '../api/OdysseumApi'
 import { ApiError, OFFLINE_MESSAGE, isOffline } from '../api/IApiClient'
 import type { IOdysseumApi } from '../api/IOdysseumApi'
-import type { DocumentContent, DocumentSummary, FolderLayout, MetadataFields, Project, ProjectInfo, ProjectSettings, ServerSettings } from '../models'
+import type { DocumentContent, DocumentSummary, FolderLayout, MetadataFields, Project, ProjectInfo, ProjectSettings, ProjectTemplate, ServerSettings } from '../models'
 import { isFolderDocument } from '../services/FileNames'
 import { downloadText, exportMarkdown } from '../services/ManuscriptExport'
 import { searchManuscript } from '../services/ManuscriptSearch'
@@ -34,6 +34,7 @@ function slugFromUrl(path: string) {
 /** Reactive state for the UI over the workspace services. Every server or storage detail lives below this. */
 export function createWorkspace(router: Router, api: IOdysseumApi = new OdysseumApi(new FetchApiClient())) {
   const projects = ref<ProjectInfo[]>([])
+  const templates = ref<ProjectTemplate[]>([])
   const slug = ref('')
   const project = ref<Project | null>(null)
   const selectedId = ref('')
@@ -245,12 +246,39 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
     try { await loadProjects() } catch (ex) { showError(ex) }
   }
 
-  async function createProject(title: string) {
+  async function loadTemplates() {
     const { library: lib } = await services()
-    const created = await lib.create(title)
+    templates.value = await lib.templates()
+    return templates.value
+  }
+
+  async function createProject(title: string, template?: string) {
+    const { library: lib } = await services()
+    const created = await lib.create(title, templates.value.find(item => item.name === template))
     projects.value = [...projects.value, created]
     await openProject(created.slug)
+    // The template's documents are written by the server; once they arrive, start the writer on the first.
+    if (!selectedId.value && session) {
+      await session.engine.syncNow()
+      const first = project.value?.documents.find(doc => !isFolderDocument(doc.path))
+      if (first) await open(first.id)
+    }
     return created
+  }
+
+  /** Templates are made from the server's copy of the project, so everything pending is pushed first. */
+  async function saveTemplate(name: string) {
+    if (!session) throw new Error('Open a project first.')
+    await session.engine.syncNow()
+    if (sync.value.pending) throw new Error(sync.value.online ? 'Some changes have not reached the server yet. Try again once they are saved.' : OFFLINE_MESSAGE)
+    const saved = await api.saveTemplate(name.trim(), session.slug)
+    await loadTemplates()
+    return saved
+  }
+
+  async function deleteTemplate(name: string) {
+    await api.deleteTemplate(name)
+    await loadTemplates()
   }
 
   function onPopState() {
@@ -414,8 +442,8 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
   }
 
   return {
-    projects, slug, project, selectedId, active, error, notice, sync, connected, durable, authenticated, passwordRequired, allowDeletingDefaultFolders, loading, rejectedDetails, documentRenames,
+    projects, templates, slug, project, selectedId, active, error, notice, sync, connected, durable, authenticated, passwordRequired, allowDeletingDefaultFolders, loading, rejectedDetails, documentRenames,
     dirty, edit, open, save, refresh, start, login, logout, create, saveDetails, move, reorder, createFolder, removeFolder, saveFolderLayout, updateSettings, updateServerSettings, search, exportManuscript,
-    snapshots, snapshot, useDisk, keepMine, saveCopy, discard, showError, beforeUnload, stop, loadProjects, openProject, leaveProject, createProject,
+    snapshots, snapshot, useDisk, keepMine, saveCopy, discard, showError, beforeUnload, stop, loadProjects, openProject, leaveProject, createProject, loadTemplates, saveTemplate, deleteTemplate,
   }
 }
