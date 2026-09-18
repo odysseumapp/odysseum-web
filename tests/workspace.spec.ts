@@ -91,7 +91,9 @@ test('creates files, saves metadata and links documents to each other', async ({
   await newDocument(page, 'location', 'Harbor')
   await chooseSection(page, 'Manuscript')
   await newDocument(page, 'scene', 'Arrival')
-  await editor(page).fill('A **new** chapter begins.')
+  await editor(page).fill('A new chapter begins.')
+  await editor(page).press('ControlOrMeta+a')
+  await page.getByRole('button', { name: 'Bold', exact: true }).click()
   await page.getByRole('button', { name: 'Details', exact: true }).click()
   await page.getByRole('textbox', { name: 'Synopsis', exact: true }).fill('A meeting by the water.')
   for (const item of ['Ada · Character', 'Harbor · Location']) {
@@ -108,7 +110,7 @@ test('creates files, saves metadata and links documents to each other', async ({
     return scene && { synopsis: scene.synopsis, links: scene.links.length }
   }).toEqual({ synopsis: 'A meeting by the water.', links: 2 })
   const scene = (await project(page.request, info.slug)).documents.find(doc => doc.title === 'Arrival')!
-  await expect.poll(() => readFile(path.resolve('.test-data/workspace', info.slug, scene.path), 'utf8')).toContain('A **new** chapter begins.')
+  await expect.poll(() => readFile(path.resolve('.test-data/workspace', info.slug, scene.path), 'utf8')).toContain('**A new chapter begins.**')
   await page.reload()
   await expect(editor(page)).toContainText('chapter begins.')
   await page.getByRole('button', { name: 'Details', exact: true }).click()

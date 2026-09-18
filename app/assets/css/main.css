@@ -1,14 +1,15 @@
 @import "tailwindcss";
 @import "@nuxt/ui";
 
-.document-editor .cm-editor { min-height: 24rem; outline: none; }
-.document-editor .cm-scroller { font-family: inherit; line-height: 1.75; }
-.document-editor.show-source .cm-scroller { font-family: var(--font-mono); }
-.document-editor .cm-content { padding: 1rem; caret-color: var(--ui-text); }
-.document-editor .cm-cursor { border-left-color: var(--ui-text); }
-.document-editor .cm-selectionBackground { background: var(--ui-bg-accented) !important; }
-.document-editor .cm-panels { background: var(--ui-bg-elevated); color: var(--ui-text); }
-.document-editor .cm-searchMatch { background: var(--ui-bg-accented); }
+.document-editor .ProseMirror { min-height: 24rem; padding: 1rem; outline: none; caret-color: var(--ui-text); }
+.document-editor .ProseMirror > :first-child { margin-top: 0; }
+.document-editor .ProseMirror ::selection { background: var(--ui-bg-accented); }
+.document-editor .ProseMirror hr { margin-block: 1.5em; border-color: var(--ui-border); }
+.document-editor .ProseMirror :is(code, pre) { font-family: var(--font-mono); font-size: .9em; }
+.document-editor .ProseMirror code { padding: .1em .3em; border-radius: .25em; background: var(--ui-bg-muted); }
+.document-editor.show-source .ProseMirror { font-family: var(--font-mono); }
+.document-editor li:has(> :first-child > .md-list:first-child) { list-style: none; }
+.document-editor .md-mark { color: var(--ui-text-dimmed); font-weight: 400; font-style: normal; text-decoration: none; white-space: pre-wrap; }
 .document-prose { overflow-wrap: anywhere; line-height: 1.75; }
 .document-prose :is(p, ul, ol, blockquote, pre, table) { margin-block: 1em; }
 .document-prose h1 { font-size: 1.875em; font-weight: 600; }
