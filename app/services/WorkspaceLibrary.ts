@@ -1,9 +1,11 @@
 import type { IOdysseumApi } from '../api/IOdysseumApi'
 import { isOffline } from '../api/IApiClient'
-import type { ProjectInfo, SessionInfo } from '../models'
+import type { ProjectInfo, ProjectTemplate, SessionInfo } from '../models'
 import type { IMirrorStore } from '../storage'
 import { projectSlugFor } from './FileNames'
-import { defaultFolders, defaultSubfolders, folderFor } from './FolderStructure'
+import { completeFolders, defaultTemplate, folderFor } from './FolderStructure'
+
+const TemplatesKey = 'odysseum:templates'
 
 /** The list of projects and the creation of new ones; works from the local copy when the server is away. */
 export class WorkspaceLibrary {
@@ -40,17 +42,36 @@ export class WorkspaceLibrary {
     return { projects, online }
   }
 
-  /** Creates the project on this device first; the folder is created on the server when the project syncs. */
-  async create(title: string): Promise<ProjectInfo> {
+  /** The templates a new project can start from. Offline it is the list this browser last saw, so a project can still be made. */
+  async templates(): Promise<ProjectTemplate[]> {
+    try {
+      const templates = await this.api.listTemplates()
+      try { localStorage.setItem(TemplatesKey, JSON.stringify(templates)) } catch { /* Storage may be unavailable. */ }
+      return templates
+    } catch (ex) {
+      if (!isOffline(ex)) throw ex
+      try {
+        const stored = JSON.parse(localStorage.getItem(TemplatesKey) ?? 'null')
+        if (Array.isArray(stored) && stored.length) return stored
+      } catch { /* Storage may be unavailable, or hold something this build cannot read. */ }
+      return [defaultTemplate]
+    }
+  }
+
+  /**
+   * Creates the project on this device first; the folder is created on the server when the project syncs.
+   * Until then the project shows the template's folders; its documents are written by the server and arrive with that sync.
+   */
+  async create(title: string, template: ProjectTemplate = defaultTemplate): Promise<ProjectInfo> {
     const clean = title.trim()
     const existing = await this.mirror.listProjects()
     const slug = projectSlugFor(clean, new Set(existing.map(project => project.slug.toLowerCase())))
-    const settings = { title: clean, wordGoal: 50000, defaultSceneWordGoal: 1000 }
+    const settings = { title: clean, ...template.settings }
     const info: ProjectInfo = { slug, title: clean, id: crypto.randomUUID(), lastModified: new Date().toISOString() }
-    const folders = ['', ...defaultFolders, ...defaultSubfolders].map(path => folderFor(path, clean))
-    folders[0]!.itemOrder = defaultFolders.map(name => `folder:${name}`)
+    const folders = completeFolders(template.folders.map(folder => ({ ...folderFor(folder.path, clean), pinnedView: folder.pinnedView,
+      itemOrder: folder.itemOrder.filter(key => key.startsWith('folder:')) })), [], clean)
     await this.mirror.putProject({ slug, project: { id: info.id, settings, revision: '', documents: [], folders, warning: null }, syncedAt: '' })
-    await this.mirror.putOp({ slug, op: { type: 'createProject', title: clean, settings }, updated: info.lastModified })
+    await this.mirror.putOp({ slug, op: { type: 'createProject', title: clean, settings, template: template.name }, updated: info.lastModified })
     await this.mirror.putProjects([...existing, info])
     return info
   }

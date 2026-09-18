@@ -18,7 +18,7 @@ export interface PendingEdit {
 
 /** Every change other than typing, recorded in the order it was made and replayed in that order. */
 export type LocalOp =
-  | { type: 'createProject'; title: string; settings: ProjectSettings }
+  | { type: 'createProject'; title: string; settings: ProjectSettings; template?: string }
   | { type: 'create'; id: string; title: string; folder: string; path: string; content: string }
   | { type: 'metadata'; id: string; fields: MetadataFields; base: MetadataFields }
   | { type: 'move'; id: string; path: string }

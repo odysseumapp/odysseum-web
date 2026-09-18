@@ -1,4 +1,4 @@
-import type { ApiCollection, DocumentContent, FolderLayout, MetadataFields, Project, ProjectInfo, ProjectSettings, SearchResult, ServerSettings, SessionInfo, Snapshot, Theme } from '../models'
+import type { ApiCollection, DocumentContent, FolderLayout, MetadataFields, Project, ProjectInfo, ProjectSettings, ProjectTemplate, SearchResult, ServerSettings, SessionInfo, Snapshot, Theme } from '../models'
 import type { IApiClient } from './IApiClient'
 import type { IOdysseumApi } from './IOdysseumApi'
 
@@ -19,8 +19,13 @@ export class OdysseumApi implements IOdysseumApi {
   saveTheme(theme: Theme) { return this.client.request<Theme>(this.theme(theme.name), 'PUT', { colors: theme.colors }) }
   deleteTheme(name: string) { return this.client.request(this.theme(name), 'DELETE') }
 
+  private template = (name: string) => `/templates/${encodeURIComponent(name)}`
+  async listTemplates() { return (await this.client.request<ApiCollection<ProjectTemplate>>('/templates')).items }
+  saveTemplate(name: string, slug: string) { return this.client.request<ProjectTemplate>(this.template(name), 'PUT', { project: slug }) }
+  deleteTemplate(name: string) { return this.client.request(this.template(name), 'DELETE') }
+
   async listProjects() { return (await this.client.request<ApiCollection<ProjectInfo>>('/projects')).items }
-  createProject(title: string, wordGoal?: number) { return this.client.request<ProjectInfo>('/projects', 'POST', { title, wordGoal }) }
+  createProject(title: string, wordGoal?: number, template?: string) { return this.client.request<ProjectInfo>('/projects', 'POST', { title, wordGoal, template }) }
   getProject(slug: string) { return this.client.request<Project>(this.project(slug)) }
   createFolder(slug: string, path: string, revision: string) { return this.client.request<Project>(`${this.project(slug)}/folders`, 'POST', { path, revision }) }
   removeFolder(slug: string, path: string, revision: string) { return this.client.request<Project>(`${this.project(slug)}/folders`, 'DELETE', { path, revision }) }

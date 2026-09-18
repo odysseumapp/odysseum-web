@@ -34,6 +34,16 @@ export type ThemeColors = Record<ThemeRole, string>
 /** A colour scheme saved on the server, one JSON file per name. */
 export interface Theme { name: string; colors: ThemeColors }
 
+/** A folder a project template creates. The root is the empty path; `itemOrder` keys are `folder:Name` or `document:File.md`. */
+export interface TemplateFolder { path: string; pinnedView: FolderView | null; itemOrder: string[]; gridFolder: string | null }
+/** What a new project starts with, saved on the server, one JSON file per name. Documents are named, never filled. */
+export interface ProjectTemplate {
+  name: string
+  settings: { wordGoal: number; defaultSceneWordGoal: number }
+  folders: TemplateFolder[]
+  documents: { path: string; title: string }[]
+}
+
 /** The editable details of a scene, as shown in the inspector. */
 export interface MetadataFields { title: string; synopsis: string; notes: string; status: DocumentStatus; wordGoal: number; links: string[]; linkNotes: Record<string, string> }
 

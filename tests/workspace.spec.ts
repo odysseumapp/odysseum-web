@@ -1,5 +1,5 @@
 import { test, expect, type Page, type APIRequestContext, type BrowserContext } from '@playwright/test'
-import { readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { DocumentContent, Project, ProjectInfo } from '../app/models'
 
@@ -12,8 +12,9 @@ const closeDialog = (page: Page) => page.getByRole('dialog').getByRole('button',
 async function project(request: APIRequestContext, slug: string): Promise<Project> {
   return (await (await request.get(base(slug))).json()).data
 }
-async function createProject(request: APIRequestContext): Promise<ProjectInfo> {
-  const response = await request.post('/api/projects', { data: { title: unique('Browser project') } })
+/** Most tests want a project holding only what they put there, so they start from a hand-written template with folders and no documents. */
+async function createProject(request: APIRequestContext, template = 'Bare'): Promise<ProjectInfo> {
+  const response = await request.post('/api/projects', { data: { title: unique('Browser project'), template } })
   expect(response.ok()).toBeTruthy()
   return (await response.json()).data
 }
@@ -37,6 +38,12 @@ test.beforeAll(async ({ playwright }) => {
   const result = await request.post('/api/login', { data: { password: 'integration-password' } })
   expect(result.ok()).toBeTruthy()
   cookies = (await request.storageState()).cookies
+  // One JSON file per project template, in the templates directory beside the settings file.
+  const folders = ['Manuscript', 'Characters', 'Locations', 'Threads', 'Notes']
+  await mkdir(path.resolve('.test-data/templates'), { recursive: true })
+  await writeFile(path.resolve('.test-data/templates/Bare.json'), JSON.stringify({
+    folders: [{ path: '', itemOrder: folders.map(name => `folder:${name}`) }, ...folders.map(name => ({ path: name })), { path: 'Manuscript/Chapter 01' }],
+  }))
   await request.dispose()
 })
 test.beforeEach(async ({ context }) => { await context.addCookies(cookies) })
@@ -422,11 +429,12 @@ test('unsaved details survive server ID assignment and a second save survives an
   await expect(page.getByRole('textbox', { name: 'Synopsis', exact: true })).toHaveValue('The later detail edit.')
 })
 
-test('new projects seed Chapter 01, order default folders and protect them until the server setting allows removal', async ({ page }) => {
-  const info = await createProject(page.request)
+test('new projects seed Chapter 01 with a first scene, order default folders and protect them until the server setting allows removal', async ({ page }) => {
+  const info = await createProject(page.request, 'Default')
   await page.goto(projectUrl(info.slug))
   const tree = page.locator('aside')
   await expect(tree.getByRole('button', { name: 'Folder Manuscript/Chapter 01', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Scene 01', exact: true })).toBeVisible()
   expect((await tree.getByRole('button', { name: /^Folder [^/]+$/ }).allInnerTexts()).map(text => text.trim())).toEqual(['Manuscript', 'Characters', 'Locations', 'Threads', 'Notes'])
   await chooseSection(page, 'Threads')
   await expect(page.getByRole('button', { name: 'Remove empty folder' })).toBeDisabled()
@@ -475,4 +483,37 @@ test('the appearance dialog repaints the app, keeps themes on the server and rem
   await dialog.getByRole('button', { name: 'Delete', exact: true }).click()
   await expect(dialog.getByRole('button', { name: 'Use theme Dusk', exact: true })).toBeHidden()
   await dialog.getByRole('button', { name: 'Reset', exact: true }).click()
+})
+
+test('a project is saved as a template and a new project starts from it', async ({ page }) => {
+  const info = await createProject(page.request)
+  await createDoc(page.request, info.slug, 'Character sheet', 'Characters', 'Wants:')
+  await page.goto(projectUrl(info.slug))
+  await page.getByRole('button', { name: 'Project templates', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByRole('button', { name: 'Save over Default', exact: true })).toBeVisible()
+  await dialog.getByRole('textbox', { name: 'Save this project as', exact: true }).fill('Sheeted')
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(dialog.getByRole('button', { name: 'Save over Sheeted', exact: true })).toBeVisible()
+  const stored = JSON.parse(await readFile(path.resolve('.test-data/templates/Sheeted.json'), 'utf8'))
+  // A project template names the documents a project starts with; what they hold stays out of it.
+  expect(stored.documents).toEqual([{ path: 'Characters/Character sheet.md', title: 'Character sheet' }])
+  await closeDialog(page)
+
+  await page.getByRole('button', { name: 'Projects', exact: true }).click()
+  const title = unique('From template')
+  await page.getByRole('textbox', { name: /^Project title/ }).fill(title)
+  await page.getByRole('combobox', { name: 'Template' }).click()
+  await page.getByRole('option', { name: 'Sheeted', exact: true }).click()
+  await page.getByRole('button', { name: 'Create project', exact: true }).click()
+  // The server writes the template's documents; the first one opens once they arrive.
+  await expect(page.getByRole('heading', { name: 'Character sheet', exact: true })).toBeVisible()
+  await expect(editor(page)).toHaveText('')
+  const made = (await project(page.request, title)).documents.find(doc => doc.title === 'Character sheet')!
+  expect(made.path).toBe('Characters/Character sheet.md')
+
+  await page.getByRole('button', { name: 'Project templates', exact: true }).click()
+  await dialog.getByRole('button', { name: 'Delete Sheeted', exact: true }).click()
+  await dialog.getByRole('button', { name: 'Delete', exact: true }).click()
+  await expect(dialog.getByRole('button', { name: 'Save over Sheeted', exact: true })).toBeHidden()
 })
