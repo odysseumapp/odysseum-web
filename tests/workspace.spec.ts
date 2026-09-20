@@ -522,7 +522,7 @@ test('a project is saved as a template and a new project starts from it', async 
 test('styles are CSS in Style documents and Pandoc fences and spans in the Markdown', async ({ page }) => {
   const info = await createProject(page.request)
   const doc = await createDoc(page.request, info.slug, 'Styled scene', 'Manuscript', 'First paragraph.\n\nSecond paragraph.')
-  await createDoc(page.request, info.slug, 'Default', 'Styles', '```css\n.normal { font-family: Georgia, serif; }\n.whisper { letter-spacing: .3em; }\n```')
+  await createDoc(page.request, info.slug, 'Default', 'Styles', '```css\n/* The page, then the styles, in one sheet. */\n.normal { font-family: Georgia, serif; }\n.whisper { letter-spacing: .3em; }\n```')
   await page.goto(projectUrl(info.slug))
   await expect(editor(page)).toContainText('Second paragraph.')
   const paragraph = (index: number) => editor(page).locator('p').nth(index)
