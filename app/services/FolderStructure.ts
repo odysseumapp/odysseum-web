@@ -1,7 +1,7 @@
 import type { DocumentKind, DocumentSummary, FolderSummary, Project, ProjectTemplate } from '../models'
 import { folderDocumentPath, isFolderDocument, kindFor } from './FileNames'
 
-export const defaultFolders = ['Manuscript', 'Characters', 'Locations', 'Threads', 'Notes']
+export const defaultFolders = ['Manuscript', 'Characters', 'Locations', 'Threads', 'Notes', 'Styles']
 /** Created with every project so a manuscript has somewhere to start. */
 export const defaultSubfolders = ['Manuscript/Chapter 01']
 /** The server's Default template as it ships, for a device that has never been able to ask for the real list. */
@@ -11,12 +11,12 @@ export const defaultTemplate: ProjectTemplate = {
   folders: ['', ...defaultFolders, ...defaultSubfolders].map(path => ({
     path, pinnedView: null, itemOrder: path ? [] : defaultFolders.map(name => `folder:${name}`), gridFolder: null,
   })),
-  documents: [{ path: 'Manuscript/Chapter 01/Scene 01.md', title: 'Scene 01' }],
+  documents: [{ path: 'Manuscript/Chapter 01/Scene 01.md', title: 'Scene 01' }, { path: 'Styles/Default.md', title: 'Default' }],
 }
 export const isDefaultFolder = (path: string) => defaultFolders.some(name => name.toLocaleLowerCase() === path.toLocaleLowerCase())
 
 /** The top-level folders whose name says what kind of documents they hold. */
-const kindFolders = new Set(['manuscript', 'characters', 'locations', 'threads', 'notes', 'research', 'story notes'])
+const kindFolders = new Set(['manuscript', 'characters', 'locations', 'threads', 'notes', 'research', 'story notes', 'styles'])
 /** Default folders and everything inside them show what kind of content they hold; other folders stay plain. */
 export function folderIcon(path: string) {
   const top = path.split('/')[0]?.toLowerCase() ?? ''
@@ -66,12 +66,12 @@ export function descendantDocuments(project: Project, path: string): DocumentSum
   return folderItems(project, path).flatMap(item => item.document ? [item.document] : descendantDocuments(project, item.folder.path))
 }
 
-export const kindOrder: DocumentKind[] = ['thread', 'character', 'location', 'scene', 'note']
-export const kindLabels: Record<DocumentKind, string> = { thread: 'Thread', character: 'Character', location: 'Location', scene: 'Scene', note: 'Note' }
+export const kindOrder: DocumentKind[] = ['thread', 'character', 'location', 'scene', 'note', 'style']
+export const kindLabels: Record<DocumentKind, string> = { thread: 'Thread', character: 'Character', location: 'Location', scene: 'Scene', note: 'Note', style: 'Style' }
 /** One document of a kind. */
-export const kindIcons: Record<DocumentKind, string> = { thread: 'i-lucide-route', character: 'i-lucide-user-round', location: 'i-lucide-map-pin', scene: 'i-lucide-file-text', note: 'i-lucide-sticky-note' }
+export const kindIcons: Record<DocumentKind, string> = { thread: 'i-lucide-route', character: 'i-lucide-user-round', location: 'i-lucide-map-pin', scene: 'i-lucide-file-text', note: 'i-lucide-sticky-note', style: 'i-lucide-paintbrush' }
 /** Many of them: what a folder holding that kind shows, at every depth. */
-export const kindFolderIcons: Record<DocumentKind, string> = { thread: 'i-lucide-git-branch', character: 'i-lucide-users', location: 'i-lucide-map', scene: 'i-lucide-book-open', note: 'i-lucide-notebook-pen' }
+export const kindFolderIcons: Record<DocumentKind, string> = { thread: 'i-lucide-git-branch', character: 'i-lucide-users', location: 'i-lucide-map', scene: 'i-lucide-book-open', note: 'i-lucide-notebook-pen', style: 'i-lucide-swatch-book' }
 
 /** Links are undirected: either side listing the other counts. */
 export const linked = (a: DocumentSummary, b: DocumentSummary) => a.id !== b.id && (a.links.includes(b.id) || b.links.includes(a.id))

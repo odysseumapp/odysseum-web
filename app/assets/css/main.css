@@ -10,6 +10,14 @@
 .document-editor.show-source .ProseMirror { font-family: var(--font-mono); }
 .document-editor li:has(> :first-child > .md-list:first-child) { list-style: none; }
 .document-editor .md-mark { color: var(--ui-text-dimmed); font-weight: 400; font-style: normal; text-decoration: none; white-space: pre-wrap; }
+.document-editor .ProseMirror > p.is-editor-empty:first-child::before { content: attr(data-placeholder); float: left; height: 0; color: var(--ui-text-dimmed); pointer-events: none; }
+.document-editor.focus-mode .ProseMirror:focus-within > :not(.has-focus) { opacity: .4; transition: opacity .3s; }
+.document-editor .ProseMirror .selectedCell { background: var(--ui-bg-accented); }
+.document-editor .tableWrapper { overflow-x: auto; }
+/* A styled block shows its Pandoc fences in source view; how it looks otherwise is the project's Style documents' business. */
+.document-editor.show-source div[data-style]::before { content: '::: ' attr(data-style); }
+.document-editor.show-source div[data-style]::after { content: ':::'; }
+.document-editor.show-source div[data-style]::before, .document-editor.show-source div[data-style]::after { display: block; color: var(--ui-text-dimmed); white-space: pre; }
 .document-prose { overflow-wrap: anywhere; line-height: 1.75; }
 .document-prose :is(p, ul, ol, blockquote, pre, table) { margin-block: 1em; }
 .document-prose h1 { font-size: 1.875em; font-weight: 600; }
@@ -21,3 +29,12 @@
 .document-prose pre { overflow-x: auto; padding: 1em; background: var(--ui-bg-muted); }
 .document-prose a { color: var(--ui-primary); text-decoration: underline; }
 .document-prose :is(th, td) { padding: .5em; border: 1px solid var(--ui-border); }
+.document-prose table { border-collapse: collapse; width: 100%; }
+.document-prose th { font-weight: 600; background: var(--ui-bg-muted); }
+.document-prose mark { background: color-mix(in oklab, var(--ui-warning) 30%, transparent); color: inherit; border-radius: .2em; }
+.document-prose img { max-width: 100%; height: auto; }
+.document-prose ul[data-type="task-list"] { list-style: none; padding-left: 0; }
+.document-prose li[data-type="task-item"] { display: flex; gap: .5em; }
+.document-prose li[data-type="task-item"] > label { flex: none; user-select: none; }
+.document-prose li[data-type="task-item"] > div { flex: 1; min-width: 0; }
+.document-prose li[data-type="task-item"][data-checked="true"] > div { color: var(--ui-text-muted); text-decoration: line-through; }

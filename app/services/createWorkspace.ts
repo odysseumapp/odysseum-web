@@ -443,7 +443,7 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
 
   return {
     projects, templates, slug, project, selectedId, active, error, notice, sync, connected, durable, authenticated, passwordRequired, allowDeletingDefaultFolders, loading, rejectedDetails, documentRenames,
-    dirty, edit, open, save, refresh, start, login, logout, create, saveDetails, move, reorder, createFolder, removeFolder, saveFolderLayout, updateSettings, updateServerSettings, search, exportManuscript,
+    dirty, contentOf, edit, open, save, refresh, start, login, logout, create, saveDetails, move, reorder, createFolder, removeFolder, saveFolderLayout, updateSettings, updateServerSettings, search, exportManuscript,
     snapshots, snapshot, useDisk, keepMine, saveCopy, discard, showError, beforeUnload, stop, loadProjects, openProject, leaveProject, createProject, loadTemplates, saveTemplate, deleteTemplate,
   }
 }

@@ -3,6 +3,7 @@ import { countWords, type DocumentSummary, type FolderLayout, type FolderSummary
 import { metadataOf } from '~/composables/useDocumentDetails'
 import { folderDocument, folderItems, isDefaultFolder, parentPath, type FolderItem } from '~/services/FolderStructure'
 import { isScene } from '~/services/FileNames'
+import { compileStyles, cssOf, isStyleDocument } from '~/services/Styles'
 
 const workspace = useWorkspace()
 const { project, active, selectedId, sync, notice, passwordRequired, allowDeletingDefaultFolders } = workspace
@@ -33,8 +34,11 @@ const themeOpen = ref(false)
 const historyOpen = ref(false)
 const moveOpen = ref(false)
 const conflictOpen = ref(false)
-const editor = ref<{ format: (type: string) => void }>()
-const rendered = ref('')
+const editor = ref<{ format: (type: string) => void; setStyle: (name: string) => void; style: string }>()
+/** The project's Style documents as one stylesheet for the page, and the names a writer can pick from the toolbar. */
+const styles = computed(() => compileStyles((project.value?.documents ?? []).filter(isStyleDocument).map(doc => cssOf(workspace.contentOf(doc.id)))))
+const styleItems = computed(() => [{ label: 'No style', value: '' }, ...styles.value.names.map(name => ({ label: name, value: name }))])
+useHead({ style: [{ key: 'project-styles', textContent: () => styles.value.css }] })
 const words = computed(() => countWords(active.value?.content ?? ''))
 const totalWords = computed(() => project.value?.documents.filter(doc => isScene(doc.path)).reduce((sum, doc) => sum + (doc.id === selectedId.value ? words.value : doc.wordCount), 0) ?? 0)
 const savedState = computed(() => {
@@ -53,15 +57,10 @@ const formatting = [
   { type: 'undo', label: 'Undo', icon: 'i-lucide-undo-2' }, { type: 'redo', label: 'Redo', icon: 'i-lucide-redo-2' },
   { type: 'bold', label: 'Bold', icon: 'i-lucide-bold' }, { type: 'italic', label: 'Italic', icon: 'i-lucide-italic' },
   { type: 'heading', label: 'Heading', icon: 'i-lucide-heading-2' }, { type: 'quote', label: 'Blockquote', icon: 'i-lucide-quote' },
-  { type: 'list', label: 'Bulleted list', icon: 'i-lucide-list' }, { type: 'break', label: 'Scene break', icon: 'i-lucide-minus' },
+  { type: 'list', label: 'Bulleted list', icon: 'i-lucide-list' }, { type: 'tasks', label: 'Checklist', icon: 'i-lucide-list-checks' },
+  { type: 'highlight', label: 'Highlight', icon: 'i-lucide-highlighter' }, { type: 'table', label: 'Table', icon: 'i-lucide-table' },
+  { type: 'break', label: 'Scene break', icon: 'i-lucide-minus' },
 ]
-let renderGeneration = 0
-watch([reading, () => active.value?.content], async ([show, content]) => {
-  const generation = ++renderGeneration
-  if (!show) return
-  const { default: MarkdownIt } = await import('markdown-it')
-  if (generation === renderGeneration) rendered.value = new MarkdownIt({ html: false, linkify: true }).render(content ?? '')
-})
 watch(() => project.value?.folders, folders => {
   if (folders && !folders.some(folder => folder.path === folderPath.value)) folderPath.value = ''
 }, { immediate: true })
@@ -180,12 +179,12 @@ onBeforeUnmount(() => window.removeEventListener('keydown', shortcut))
             <template v-if="!reading"><UButton v-for="action in formatting" :key="action.type" color="neutral" variant="ghost" :icon="action.icon" :aria-label="action.label" :title="action.label" @click="editor?.format(action.type)" /></template>
             <UButton color="neutral" :variant="source ? 'soft' : 'ghost'" :aria-pressed="source" :disabled="reading" @click="source = !source">Source</UButton>
             <UButton color="neutral" :variant="reading ? 'soft' : 'ghost'" :aria-pressed="reading" @click="reading = !reading">{{ reading ? 'Edit' : 'Read' }}</UButton>
-            <USelect v-model="fontSize" :items="[14, 16, 18, 20, 24].map(value => ({ label: `${value}px`, value }))" aria-label="Font size" class="ml-auto w-24" />
+            <USelect v-if="!reading" :model-value="editor?.style ?? ''" :items="styleItems" aria-label="Style" class="ml-auto w-40" @update:model-value="editor?.setStyle($event)" />
+            <USelect v-model="fontSize" :items="[14, 16, 18, 20, 24].map(value => ({ label: `${value}px`, value }))" aria-label="Font size" class="w-24" :class="{ 'ml-auto': reading }" />
           </div>
           <UAlert v-if="active.conflict" color="warning" title="This document has conflicting changes" :actions="[{ label: 'Review changes', onClick: () => conflictOpen = true }]" />
           <div class="rounded-lg border border-default overflow-hidden">
-            <article v-if="reading" class="document-prose p-4 min-h-96" :style="{ fontSize: `${fontSize}px` }" v-html="rendered" />
-            <DocumentEditor v-else ref="editor" :model-value="active.content" :document-id="selectedId" :source="source" :font-size="fontSize" @update:model-value="workspace.edit" @save="run(workspace.save)" />
+            <DocumentEditor ref="editor" :model-value="active.content" :document-id="selectedId" :source="source" :focus="focus" :editable="!reading" :font-size="fontSize" @update:model-value="workspace.edit" @save="run(workspace.save)" />
           </div>
           <footer class="flex flex-wrap items-center justify-between gap-2 text-sm text-muted"><span>{{ words.toLocaleString() }} words<span v-if="notice"> · {{ notice }}</span></span><UButton color="neutral" variant="ghost" :loading="sync.syncing" @click="active?.conflict ? conflictOpen = true : run(workspace.save)">{{ savedState }}</UButton></footer>
         </template>
