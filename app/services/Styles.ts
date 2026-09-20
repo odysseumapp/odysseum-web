@@ -116,12 +116,12 @@ export function cssOf(markdown: string) {
 }
 
 interface Rule { prelude: string; body: string }
-/** The rules at the top of a stylesheet, comments and strings skipped: what comes before each `{` and what is inside. */
-function rulesOf(css: string) {
+/** The rules at the top of a stylesheet, comments removed and strings skipped: what comes before each `{` and what is inside. */
+function rulesOf(source: string) {
+  const css = source.replace(/\/\*[\s\S]*?\*\//g, '')
   const rules: Rule[] = []
   for (let start = 0, open = -1, depth = 0, i = 0; i < css.length; i++) {
     const char = css[i]
-    if (char === '/' && css[i + 1] === '*') { i = css.indexOf('*/', i + 2); if (i < 0) break; i++; continue }
     if (char === '"' || char === "'") { i = css.indexOf(char, i + 1); if (i < 0) break; continue }
     if (char === '{') { if (depth++ === 0) open = i }
     else if (char === '}') { if (depth > 0 && --depth === 0) { rules.push({ prelude: css.slice(start, open).trim(), body: css.slice(open + 1, i) }); start = i + 1 } }
