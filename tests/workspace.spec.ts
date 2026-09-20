@@ -519,3 +519,51 @@ test('a project is saved as a template and a new project starts from it', async 
   await dialog.getByRole('button', { name: 'Delete', exact: true }).click()
   await expect(dialog.getByRole('button', { name: 'Save over Sheeted', exact: true })).toBeHidden()
 })
+test('styles are CSS in Style documents and Pandoc fences and spans in the Markdown', async ({ page }) => {
+  const info = await createProject(page.request)
+  const doc = await createDoc(page.request, info.slug, 'Styled scene', 'Manuscript', 'First paragraph.\n\nSecond paragraph.')
+  await createDoc(page.request, info.slug, 'Default', 'Styles', '```css\n.normal { font-family: Georgia, serif; }\n.whisper { letter-spacing: .3em; }\n```')
+  await page.goto(projectUrl(info.slug))
+  await expect(editor(page)).toContainText('Second paragraph.')
+  const paragraph = (index: number) => editor(page).locator('p').nth(index)
+  const pick = async (name: string) => {
+    await page.getByRole('combobox', { name: 'Style', exact: true }).click()
+    await page.getByRole('option', { name, exact: true }).click()
+  }
+  const select = async (index: number, letters: number) => {
+    await paragraph(index).click()
+    await page.keyboard.press('Home')
+    for (let i = 0; i < letters; i++) await page.keyboard.press('Shift+ArrowRight')
+  }
+  // `.normal` is what untagged text looks like.
+  await expect(paragraph(0)).toHaveCSS('font-family', /Georgia/)
+  // With nothing selected, a style goes on the block the cursor is in.
+  await paragraph(1).click()
+  await pick('whisper')
+  const block = editor(page).locator('div[data-style="whisper"]')
+  await expect(block).toContainText('Second paragraph.')
+  await expect(block.locator('p')).toHaveCSS('letter-spacing', '4.8px')
+  await expect(paragraph(0)).toHaveCSS('letter-spacing', 'normal')
+  // With text selected, it goes on the text alone; tagging text `normal` inside a style brings it back.
+  await select(1, 6)
+  await pick('normal')
+  const normal = editor(page).locator('span[data-style="normal"]')
+  await expect(normal).toContainText('Second')
+  await expect(normal).toHaveCSS('letter-spacing', 'normal')
+  await select(0, 5)
+  await pick('whisper')
+  // The cursor's block shows its Markdown hints, so the span reads `[First]{.whisper}` here.
+  const span = editor(page).locator('span[data-style="whisper"]')
+  await expect(span).toContainText('First')
+  await expect(span).not.toContainText('paragraph')
+  await expect(page.getByRole('button', { name: 'All changes saved', exact: true })).toBeVisible({ timeout: 10000 })
+  const file = filePath(info.slug, doc)
+  await expect.poll(() => readFile(file, 'utf8')).toContain('[First]{.whisper} paragraph.\n\n::: whisper\n\n[Second]{.normal} paragraph.\n\n:::')
+  // The file alone is the document: opening it again finds the same styles, in reading mode too.
+  await page.reload()
+  await expect(editor(page).locator('div[data-style="whisper"] p')).toHaveCSS('letter-spacing', '4.8px')
+  await expect(span).toContainText('First')
+  await page.getByRole('button', { name: 'Read', exact: true }).click()
+  await expect(page.locator('.document-prose div[data-style="whisper"]')).toContainText('Second paragraph.')
+  await expect(page.getByRole('button', { name: 'Style', exact: true })).toBeHidden()
+})

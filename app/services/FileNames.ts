@@ -35,6 +35,7 @@ export function kindFor(path: string): DocumentKind {
   if (top === 'locations') return 'location'
   if (top === 'threads') return 'thread'
   if (top === 'notes' || top === 'research' || top === 'story notes') return 'note'
+  if (top === 'styles') return 'style'
   return 'scene'
 }
 
