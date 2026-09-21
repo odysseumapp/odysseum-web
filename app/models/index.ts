@@ -21,6 +21,8 @@ export interface Project { id: string; settings: ProjectSettings; revision: stri
 export interface ProjectInfo { slug: string; title: string; id: string; lastModified: string }
 export interface ApiCollection<T> { totalItems: number; items: T[] }
 export interface Snapshot { id: string; created: string; wordCount: number }
+/** A saved state of the whole project. `name` is null for versions the server saved on its own; `changes` counts files that differ from the version before. */
+export interface ProjectVersion { id: string; name: string | null; automatic: boolean; saved: string; changes: number }
 export interface SessionInfo { authenticated: boolean; passwordRequired: boolean; allowDeletingDefaultFolders: boolean }
 /** Server settings the interface may change. */
 export interface ServerSettings { allowDeletingDefaultFolders: boolean }

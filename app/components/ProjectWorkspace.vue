@@ -30,6 +30,7 @@ const createOpen = ref(false)
 const searchOpen = ref(false)
 const settingsOpen = ref(false)
 const templateOpen = ref(false)
+const versionsOpen = ref(false)
 const themeOpen = ref(false)
 const historyOpen = ref(false)
 const moveOpen = ref(false)
@@ -143,6 +144,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', shortcut))
         <UButton color="neutral" variant="ghost" icon="i-lucide-search" aria-label="Search documents" @click="searchOpen = true" />
         <UButton color="neutral" variant="ghost" icon="i-lucide-settings" aria-label="Project settings" @click="settingsOpen = true" />
         <UButton color="neutral" variant="ghost" icon="i-lucide-layout-template" aria-label="Project templates" @click="templateOpen = true" />
+        <UButton color="neutral" variant="ghost" icon="i-lucide-history" aria-label="Project versions" @click="versionsOpen = true" />
         <UButton color="neutral" variant="ghost" icon="i-lucide-download" aria-label="Export manuscript" @click="workspace.exportManuscript" />
         <UButton color="neutral" variant="ghost" icon="i-lucide-refresh-cw" aria-label="Sync now" @click="run(workspace.refresh)" />
         <UButton color="neutral" variant="ghost" icon="i-lucide-palette" aria-label="Appearance" @click="themeOpen = true" />
@@ -201,6 +203,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', shortcut))
     <CreateFolderModal v-model:open="folderOpen" :parent="folderParent" />
     <ProjectSettingsModal v-model:open="settingsOpen" />
     <ProjectTemplateModal v-model:open="templateOpen" />
+    <ProjectVersionsModal v-model:open="versionsOpen" @restored="view = 'write'; reading = false" />
     <ThemeModal v-model:open="themeOpen" />
     <DocumentSearchModal v-model:open="searchOpen" @select="select" />
     <DocumentHistoryModal v-model:open="historyOpen" @restored="view = 'write'; reading = false" />

@@ -266,14 +266,33 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
     return created
   }
 
-  /** Templates are made from the server's copy of the project, so everything pending is pushed first. */
-  async function saveTemplate(name: string) {
+  /** The session once every pending change is on the server: templates and versions are made from the server's copy. */
+  async function settled() {
     if (!session) throw new Error('Open a project first.')
     await session.engine.syncNow()
     if (sync.value.pending) throw new Error(sync.value.online ? 'Some changes have not reached the server yet. Try again once they are saved.' : OFFLINE_MESSAGE)
-    const saved = await api.saveTemplate(name.trim(), session.slug)
+    return session
+  }
+
+  async function saveTemplate(name: string) {
+    const current = await settled()
+    const saved = await api.saveTemplate(name.trim(), current.slug)
     await loadTemplates()
     return saved
+  }
+
+  async function versions() { return session ? api.listVersions(session.slug) : [] }
+
+  async function saveVersion(name: string) {
+    const current = await settled()
+    return api.saveVersion(current.slug, name.trim())
+  }
+
+  /** The server rewrites the files; pulling afterwards brings the restored prose into open documents. */
+  async function restoreVersion(id: string) {
+    const current = await settled()
+    await api.restoreVersion(current.slug, id)
+    await current.engine.syncNow()
   }
 
   async function deleteTemplate(name: string) {
@@ -444,6 +463,6 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
   return {
     projects, templates, slug, project, selectedId, active, error, notice, sync, connected, durable, authenticated, passwordRequired, allowDeletingDefaultFolders, loading, rejectedDetails, documentRenames,
     dirty, contentOf, edit, open, save, refresh, start, login, logout, create, saveDetails, move, reorder, createFolder, removeFolder, saveFolderLayout, updateSettings, updateServerSettings, search, exportManuscript,
-    snapshots, snapshot, useDisk, keepMine, saveCopy, discard, showError, beforeUnload, stop, loadProjects, openProject, leaveProject, createProject, loadTemplates, saveTemplate, deleteTemplate,
+    snapshots, snapshot, useDisk, keepMine, saveCopy, discard, showError, beforeUnload, stop, loadProjects, openProject, leaveProject, createProject, loadTemplates, saveTemplate, deleteTemplate, versions, saveVersion, restoreVersion,
   }
 }
