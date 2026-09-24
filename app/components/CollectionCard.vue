@@ -3,7 +3,6 @@ import { folderIcon, kindIcons, linkedDocuments, type FolderItem } from '~/servi
 const props = defineProps<{ item: FolderItem; compact?: boolean }>()
 const emit = defineEmits<{ open: [] }>()
 const { project } = useWorkspace()
-// Full cards carry their connections, so the Corkboard and Outline show who and what a document involves.
 const links = computed(() => props.item.document && !props.compact && project.value ? linkedDocuments(project.value, props.item.document.id) : [])
 const shown = 6
 </script>

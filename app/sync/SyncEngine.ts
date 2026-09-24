@@ -12,10 +12,6 @@ const WRITE_DELAY_MS = 150
 const MIN_BACKOFF_MS = 2000
 const MAX_BACKOFF_MS = 30000
 
-/**
- * Owns timing and connectivity for one project: when to run a pass, how to back off while the server is
- * unreachable, and how typing reaches the mirror. A pass is: replay queued operations, pull, push edits.
- */
 export class SyncEngine implements ISyncEngine {
   private readonly replayer: OperationReplayer
   private readonly puller: ProjectPuller
@@ -207,7 +203,6 @@ export class SyncEngine implements ISyncEngine {
     const document = await mirror.getDocument(this.slug, id)
     const existing = await mirror.getPending(this.slug, id)
     if (existing?.conflict) {
-      // The writer is revising their side of a conflict; keep the conflict, update the draft.
       existing.content = write.content
       existing.updated = new Date().toISOString()
       await mirror.putPending(existing)
@@ -225,7 +220,6 @@ export class SyncEngine implements ISyncEngine {
     this.syncSoon()
   }
 
-  /** One pass per project at a time across tabs; without Web Locks, passes in this tab are already serialized. */
   private async locked(run: () => Promise<void>): Promise<void> {
     const locks = navigator.locks
     if (locks) await locks.request(`odysseum-sync:${this.slug}`, run)

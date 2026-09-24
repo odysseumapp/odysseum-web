@@ -3,7 +3,6 @@ const workspace = useWorkspace()
 const { projects, templates, passwordRequired } = workspace
 const title = ref('')
 const template = ref('Default')
-// Offline this is the list the browser last saw; a failure here must not stand in the way of the projects.
 onMounted(() => { void workspace.loadTemplates().catch(() => {}) })
 watch(templates, list => { if (list.length && !list.some(item => item.name === template.value)) template.value = list.find(item => item.name === 'Default')?.name ?? list[0]!.name })
 const settingsOpen = ref(false)

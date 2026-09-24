@@ -12,7 +12,6 @@ const closeDialog = (page: Page) => page.getByRole('dialog').getByRole('button',
 async function project(request: APIRequestContext, slug: string): Promise<Project> {
   return (await (await request.get(base(slug))).json()).data
 }
-/** Most tests want a project holding only what they put there, so they start from a hand-written template with folders and no documents. */
 async function createProject(request: APIRequestContext, template = 'Bare'): Promise<ProjectInfo> {
   const response = await request.post('/api/projects', { data: { title: unique('Browser project'), template } })
   expect(response.ok()).toBeTruthy()
@@ -38,7 +37,6 @@ test.beforeAll(async ({ playwright }) => {
   const result = await request.post('/api/login', { data: { password: 'integration-password' } })
   expect(result.ok()).toBeTruthy()
   cookies = (await request.storageState()).cookies
-  // One JSON file per project template, in the templates directory beside the settings file.
   const folders = ['Manuscript', 'Characters', 'Locations', 'Threads', 'Notes']
   await mkdir(path.resolve('.test-data/templates'), { recursive: true })
   await writeFile(path.resolve('.test-data/templates/Bare.json'), JSON.stringify({
@@ -144,7 +142,6 @@ test('every folder has a grid of its documents against another folder, with coll
   await chooseSection(page, 'Characters')
   await page.getByRole('tab', { name: 'Grid', exact: true }).click()
   const grid = page.getByRole('table', { name: 'Grid', exact: true })
-  // Columns default to the Threads folder; rows are this folder's documents, grouped by subfolder.
   await expect(grid.getByRole('columnheader').filter({ hasText: 'Race' })).toBeVisible()
   await expect(grid.getByRole('columnheader').filter({ hasText: 'Meet Cute' })).toBeVisible()
   await grid.getByRole('button', { name: 'Link Discovery to Race', exact: true }).click()
@@ -153,7 +150,6 @@ test('every folder has a grid of its documents against another folder, with coll
     const current = await project(page.request, info.slug)
     return [current.documents.find(doc => doc.id === second.document.id)?.links, current.documents.find(doc => doc.id === race.document.id)?.links]
   }).toEqual([[race.document.id], [second.document.id]])
-  // The mark takes a note that both ends of the link share.
   await grid.getByRole('button', { name: 'Note on Discovery and Race', exact: true }).click()
   await grid.getByRole('textbox', { name: 'Note on Discovery and Race', exact: true }).fill('Where the race begins')
   await page.keyboard.press('Enter')
@@ -162,7 +158,6 @@ test('every folder has a grid of its documents against another folder, with coll
     const current = await project(page.request, info.slug)
     return [current.documents.find(doc => doc.id === second.document.id)?.linkNotes, current.documents.find(doc => doc.id === race.document.id)?.linkNotes]
   }).toEqual([{ [race.document.id]: 'Where the race begins' }, { [second.document.id]: 'Where the race begins' }])
-  // A row's synopsis is edited in place: Escape discards, Enter saves.
   await grid.getByRole('button', { name: 'Edit synopsis of Discovery', exact: true }).click()
   await grid.getByRole('textbox', { name: 'Synopsis of Discovery', exact: true }).fill('Thrown away')
   await page.keyboard.press('Escape')
@@ -176,12 +171,10 @@ test('every folder has a grid of its documents against another folder, with coll
   await expect.poll(async () => (await project(page.request, info.slug)).documents.find(doc => doc.id === nested.document.id)?.links).toEqual([cute.document.id])
   await grid.getByRole('button', { name: 'Link Nested to Meet Cute', exact: true }).click()
   await expect.poll(async () => (await project(page.request, info.slug)).documents.find(doc => doc.path === 'Characters/Race/Nested/.Nested.md')?.links).toEqual([cute.document.id])
-  // Collapsing a subfolder rolls its linked documents up into the group row.
   await grid.getByRole('button', { name: 'Collapse Race', exact: true }).click()
   await expect(grid.getByRole('rowheader').filter({ hasText: 'Nested point' })).toBeHidden()
   await expect(grid.getByRole('button', { name: 'Open Nested point', exact: true })).toBeVisible()
   await grid.getByRole('button', { name: 'Expand Race', exact: true }).click()
-  // Columns can come from any other folder, and the choice is saved with the folder.
   await page.getByRole('combobox', { name: 'Columns from folder', exact: true }).click()
   await page.getByRole('option', { name: 'Notes', exact: true }).click()
   await expect(grid.getByRole('columnheader').filter({ hasText: 'A stray idea' })).toBeVisible()
@@ -202,7 +195,6 @@ test('every folder has a grid of its documents against another folder, with coll
   await closeDialog(page)
   await editor(page).fill('A document on a thread.')
   await expect.poll(() => readFile(path.resolve('.test-data/workspace', info.slug, nested.document.path), 'utf8')).toContain('A document on a thread.')
-  // The Corkboard shows a document's links on its card.
   await chooseSection(page, 'Characters')
   await page.getByRole('tab', { name: 'Corkboard', exact: true }).click()
   await expect(page.getByLabel('Corkboard', { exact: true }).getByLabel('Linked documents').filter({ hasText: 'Race' }).first()).toBeVisible()
@@ -224,7 +216,6 @@ test('folder stacks keep the view, pins persist, folders open their own document
   const outline = page.getByLabel('Outline', { exact: true })
   await outline.locator(`[data-item-key="${second.document.id}"]`).dragTo(outline.locator(`[data-item-key="${first.document.id}"]`))
   await expect(outline.locator('[data-item-key]').first()).toHaveAttribute('data-item-key', first.document.id)
-  // The view follows you between folders until a pinned folder or an explicit Write says otherwise.
   await chooseSection(page, 'Manuscript')
   await expect(page.getByRole('tab', { name: 'Outline', exact: true })).toHaveAttribute('aria-selected', 'true')
   await chooseSection(page, 'Manuscript/Part')
@@ -241,7 +232,6 @@ test('folder stacks keep the view, pins persist, folders open their own document
   await page.reload()
   await chooseSection(page, 'Notes')
   await expect(page.getByRole('tab', { name: 'Grid', exact: true })).toHaveAttribute('aria-selected', 'true')
-  // Writing in a folder pinned to another view still opens that folder's own document.
   await page.getByRole('tab', { name: 'Write', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Notes', exact: true })).toBeVisible()
   await newFolder(page, 'Empty')
@@ -275,7 +265,6 @@ test('offline reload preserves edits, pins and links made in the grid', async ({
   await page.getByRole('tab', { name: 'Grid', exact: true }).click()
   await page.getByRole('button', { name: 'Pin view for this folder' }).click()
   await page.getByRole('button', { name: 'Link Offline scene to Offline thread', exact: true }).click()
-  // The unlink button only shows under the pointer; the mark itself is always there.
   const on = page.getByRole('button', { name: 'Note on Offline scene and Offline thread', exact: true })
   await expect(on).toBeVisible()
   await page.reload()
@@ -299,7 +288,6 @@ test('live events cross the Nuxt proxy and conflicts preserve both versions', as
   const file = filePath(info.slug, doc)
   const raw = await readFile(file, 'utf8')
   await writeFile(file, raw.replace('Original paragraph.', 'Live external update.'))
-  // Shorter than the engine's 20-second full-sync interval: this exercises SSE streaming.
   await expect(editor(page)).toContainText('Live external update.', { timeout: 8000 })
   await context.setOffline(true)
   await editor(page).fill('Keep this browser draft.')
@@ -360,7 +348,6 @@ test('history, search, file moves, ordering, settings, export and router navigat
   await expect(page.getByRole('heading', { name: 'Projects', exact: true })).toBeVisible()
   await page.goBack()
   await expect(page).toHaveURL(projectUrl(info.slug))
-  // The project reopens on what was last open: the Manuscript folder's own document.
   await expect(page.getByRole('heading', { name: 'Manuscript', exact: true })).toBeVisible()
   await page.locator('aside').getByRole('button', { name: 'Open Another scene', exact: true }).click()
   await expect(editor(page)).toContainText('Original paragraph.')
@@ -470,10 +457,8 @@ test('the appearance dialog repaints the app, keeps themes on the server and rem
   await dialog.getByRole('textbox', { name: 'Save these colours as', exact: true }).fill('Dusk')
   await dialog.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(dialog.getByRole('button', { name: 'Use theme Dusk', exact: true })).toBeVisible()
-  // One JSON file per theme, in the themes directory beside the settings file.
   await expect.poll(async () => JSON.parse(await readFile(path.resolve('.test-data/themes/Dusk.json'), 'utf8')).colors.primary).toBe('rose')
   await closeDialog(page)
-  // The browser wears the theme it was last shown, with no request to the server.
   await page.reload()
   await expect.poll(primary).toBe(rose)
   await page.getByRole('button', { name: 'Appearance', exact: true }).click()
@@ -498,7 +483,6 @@ test('a project is saved as a template and a new project starts from it', async 
   await dialog.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(dialog.getByRole('button', { name: 'Save over Sheeted', exact: true })).toBeVisible()
   const stored = JSON.parse(await readFile(path.resolve('.test-data/templates/Sheeted.json'), 'utf8'))
-  // A project template names the documents a project starts with; what they hold stays out of it.
   expect(stored.documents).toEqual([{ path: 'Characters/Character sheet.md', title: 'Character sheet' }])
   await closeDialog(page)
 
@@ -508,7 +492,6 @@ test('a project is saved as a template and a new project starts from it', async 
   await page.getByRole('combobox', { name: 'Template' }).click()
   await page.getByRole('option', { name: 'Sheeted', exact: true }).click()
   await page.getByRole('button', { name: 'Create project', exact: true }).click()
-  // The server writes the template's documents; the first one opens once they arrive.
   await expect(page.getByRole('heading', { name: 'Character sheet', exact: true })).toBeVisible()
   await expect(editor(page)).toHaveText('')
   const made = (await project(page.request, title)).documents.find(doc => doc.title === 'Character sheet')!
@@ -539,7 +522,6 @@ test('project versions save every file and a restore brings them back, keeping w
   await dialog.getByRole('button', { name: 'Restore this version', exact: true }).click()
   await expect(dialog.getByRole('status')).toContainText('Restored “Before the rewrite”')
   await page.screenshot({ path: '.test-data/versions.png' })
-  // The state being replaced is the newest version, so the restore itself can be undone.
   await expect(dialog.getByRole('button', { name: 'Restore Restored “Before the rewrite”', exact: true })).toBeVisible()
   await closeDialog(page)
   await expect(editor(page)).toContainText('Original paragraph.')
@@ -563,16 +545,13 @@ test('styles are CSS in Style documents and Pandoc fences and spans in the Markd
     await page.keyboard.press('Home')
     for (let i = 0; i < letters; i++) await page.keyboard.press('Shift+ArrowRight')
   }
-  // `.normal` is what untagged text looks like.
   await expect(paragraph(0)).toHaveCSS('font-family', /Georgia/)
-  // With nothing selected, a style goes on the block the cursor is in.
   await paragraph(1).click()
   await pick('whisper')
   const block = editor(page).locator('div[data-style="whisper"]')
   await expect(block).toContainText('Second paragraph.')
   await expect(block.locator('p')).toHaveCSS('letter-spacing', '4.8px')
   await expect(paragraph(0)).toHaveCSS('letter-spacing', 'normal')
-  // With text selected, it goes on the text alone; tagging text `normal` inside a style brings it back.
   await select(1, 6)
   await pick('normal')
   const normal = editor(page).locator('span[data-style="normal"]')
@@ -580,14 +559,12 @@ test('styles are CSS in Style documents and Pandoc fences and spans in the Markd
   await expect(normal).toHaveCSS('letter-spacing', 'normal')
   await select(0, 5)
   await pick('whisper')
-  // The cursor's block shows its Markdown hints, so the span reads `[First]{.whisper}` here.
   const span = editor(page).locator('span[data-style="whisper"]')
   await expect(span).toContainText('First')
   await expect(span).not.toContainText('paragraph')
   await expect(page.getByRole('button', { name: 'All changes saved', exact: true })).toBeVisible({ timeout: 10000 })
   const file = filePath(info.slug, doc)
   await expect.poll(() => readFile(file, 'utf8')).toContain('[First]{.whisper} paragraph.\n\n::: whisper\n\n[Second]{.normal} paragraph.\n\n:::')
-  // The file alone is the document: opening it again finds the same styles, in reading mode too.
   await page.reload()
   await expect(editor(page).locator('div[data-style="whisper"] p')).toHaveCSS('letter-spacing', '4.8px')
   await expect(span).toContainText('First')

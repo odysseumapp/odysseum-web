@@ -1,6 +1,5 @@
 import type { DocumentContent, FolderLayout, MetadataFields, Project, ProjectInfo, ProjectSettings, ProjectTemplate, ProjectVersion, SearchResult, ServerSettings, SessionInfo, Snapshot, Theme } from '../models'
 
-/** Every server endpoint, typed. Nothing else in the app builds a URL. */
 export interface IOdysseumApi {
   getSession(): Promise<SessionInfo>
   login(password: string): Promise<SessionInfo>
@@ -13,7 +12,6 @@ export interface IOdysseumApi {
   deleteTheme(name: string): Promise<void>
 
   listTemplates(): Promise<ProjectTemplate[]>
-  /** Saves the project as it stands on the server as a template, replacing one of the same name. */
   saveTemplate(name: string, slug: string): Promise<ProjectTemplate>
   deleteTemplate(name: string): Promise<void>
 
@@ -29,9 +27,7 @@ export interface IOdysseumApi {
   eventsUrl(slug: string): string
 
   listVersions(slug: string): Promise<ProjectVersion[]>
-  /** Saves the project as it stands on the server under a name. */
   saveVersion(slug: string, name: string): Promise<ProjectVersion>
-  /** Writes a version's files back over the project; the server keeps the replaced state as a version first. */
   restoreVersion(slug: string, id: string): Promise<Project>
 
   listDocuments(slug: string): Promise<DocumentContent[]>

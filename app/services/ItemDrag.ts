@@ -6,5 +6,5 @@ export function draggedItem(event: DragEvent, path: string): string | undefined 
   try {
     const item = JSON.parse(event.dataTransfer?.getData('application/x-odysseum-item') ?? '')
     if (item.path === path && typeof item.key === 'string') return item.key
-  } catch { /* Ignore drags from other applications. */ }
+  } catch {  }
 }

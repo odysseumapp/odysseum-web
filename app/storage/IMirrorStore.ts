@@ -1,12 +1,9 @@
 import type { DocumentContent, DocumentSummary, FolderLayout, MetadataFields, Project, ProjectInfo, ProjectSettings, Snapshot } from '../models'
 
-/** The server's copy of a project as of the last successful sync. */
 export interface MirroredProject { slug: string; project: Project; syncedAt: string }
 
-/** The server's copy of a document; `document.revision` is the disk fingerprint, '' until a locally created file exists on the server. */
 export interface MirroredDocument { slug: string; id: string; document: DocumentSummary; content: string }
 
-/** A local text edit not yet accepted by the server. `baseRevision` is the fingerprint it was written against. */
 export interface PendingEdit {
   slug: string
   id: string
@@ -16,7 +13,6 @@ export interface PendingEdit {
   conflict: DocumentContent | 'deleted' | null
 }
 
-/** Every change other than typing, recorded in the order it was made and replayed in that order. */
 export type LocalOp =
   | { type: 'createProject'; title: string; settings: ProjectSettings; template?: string }
   | { type: 'create'; id: string; title: string; folder: string; path: string; content: string }
@@ -29,29 +25,21 @@ export type LocalOp =
   | { type: 'folderLayout'; path: string; patch: Partial<FolderLayout> }
 export interface PendingOp { seq?: number; slug: string; op: LocalOp; updated: string }
 
-/** Version history fetched while online, kept so it can be read offline. */
 export interface CachedSnapshots { slug: string; id: string; list: Snapshot[]; contents: Record<string, string> }
 
-/**
- * Where the browser keeps its copy of the manuscript. IndexedDB today; a desktop build can
- * implement this over real files without touching the sync engine or the UI.
- */
 export interface IMirrorStore {
-  /** False when only in-memory storage was available (private browsing, storage blocked). */
   readonly durable: boolean
 
   listProjects(): Promise<ProjectInfo[]>
   putProjects(projects: ProjectInfo[]): Promise<void>
   getProject(slug: string): Promise<MirroredProject | undefined>
   putProject(project: MirroredProject): Promise<void>
-  /** Re-keys everything stored under a project when the server assigns a different folder name. */
   renameProject(from: string, to: string): Promise<void>
 
   listDocuments(slug: string): Promise<MirroredDocument[]>
   getDocument(slug: string, id: string): Promise<MirroredDocument | undefined>
   putDocuments(documents: MirroredDocument[]): Promise<void>
   deleteDocument(slug: string, id: string): Promise<void>
-  /** Re-keys a document, its pending edit, and every queued change that names it, when the server assigns the real id. */
   renameDocument(slug: string, from: string, to: string): Promise<void>
 
   listPending(slug: string): Promise<PendingEdit[]>
@@ -67,12 +55,10 @@ export interface IMirrorStore {
   putSnapshots(snapshots: CachedSnapshots): Promise<void>
 }
 
-/** Rewrites document ids inside a queued change; shared by every store implementation. */
 export function renameInOp(op: LocalOp, from: string, to: string): LocalOp {
   switch (op.type) {
     case 'create': case 'move': return op.id === from ? { ...op, id: to } : op
     case 'metadata': {
-      // The document itself, and anything linked to it, may have been created offline.
       const swap = (ids: string[] = []) => ids.map(id => id === from ? to : id)
       const notes = (map: Record<string, string> = {}) => Object.fromEntries(Object.entries(map).map(([id, note]) => [id === from ? to : id, note]))
       const links = (fields: MetadataFields) => ({ ...fields, links: swap(fields.links), linkNotes: notes(fields.linkNotes) })

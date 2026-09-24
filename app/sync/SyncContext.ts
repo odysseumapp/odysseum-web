@@ -4,7 +4,6 @@ import type { ISyncListener } from './ISyncEngine'
 import type { MutationQueue } from './MutationQueue'
 import { renameInOp, type LocalOp } from '../storage/IMirrorStore'
 
-/** What every sync step works with. `slug` can change once, when the server names a project created offline. */
 export interface SyncContext {
   readonly api: IOdysseumApi
   readonly mirror: IMirrorStore

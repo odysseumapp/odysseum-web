@@ -4,7 +4,6 @@ import { access, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises
 import path from 'node:path'
 import archiver from 'archiver'
 
-// Packages the generated static UI as the ZIP release the C# server installs with --install-webui.
 const webRoot = path.resolve(import.meta.dirname, '..')
 const publicDir = path.join(webRoot, '.output', 'public')
 await access(path.join(publicDir, 'webui-release.json')).catch(() => { throw new Error('Run npm run build before packaging the UI.') })

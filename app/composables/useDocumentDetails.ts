@@ -21,7 +21,6 @@ export function useDocumentDetails() {
     try { localStorage.setItem(storageKey(id), JSON.stringify(draft)) }
     catch { workspace.error.value = 'Browser storage is unavailable. Save your document details before closing this tab.' }
   }
-  // A locally created project receives its permanent ID during sync.
   watch(() => project.value?.id, () => { for (const [id, draft] of drafts) persist(id, draft) })
   watch(workspace.documentRenames, renames => {
     for (const [from, to] of renames) {
@@ -44,7 +43,7 @@ export function useDocumentDetails() {
           draft.fields.links ??= []; draft.base.links ??= []
           draft.fields.linkNotes ??= {}; draft.base.linkNotes ??= {}
         }
-      } catch { /* Use the document when a saved draft cannot be read. */ }
+      } catch {  }
     }
     if (!draft?.dirty) draft = { fields: metadataOf(doc), base: metadataOf(doc), dirty: false }
     drafts.set(doc.id, draft)

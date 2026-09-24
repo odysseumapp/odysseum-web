@@ -13,7 +13,6 @@ watch(open, value => {
   error.value = ''
   confirming.value = ''
   saveAs.value = name.value
-  // Offline the library is simply empty; the colours on screen are kept on this device either way.
   void run(theme.list)
 })
 watch(name, value => { if (value) saveAs.value = value })

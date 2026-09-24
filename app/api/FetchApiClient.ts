@@ -1,6 +1,5 @@
 import { ApiError, OFFLINE_MESSAGE, type IApiClient } from './IApiClient'
 
-// Every response is an envelope: { apiVersion, data } on success, { apiVersion, error: { code, message } } on failure.
 interface Envelope<T> { apiVersion: string; data?: T; error?: { code: number; message: string } }
 
 export class FetchApiClient implements IApiClient {
@@ -16,7 +15,6 @@ export class FetchApiClient implements IApiClient {
         body: body === undefined ? undefined : JSON.stringify(body),
       })
     } catch {
-      // fetch only throws when no response arrived at all: server down, network gone, or the request aborted.
       throw new ApiError(0, OFFLINE_MESSAGE)
     }
     const text = await response.text()

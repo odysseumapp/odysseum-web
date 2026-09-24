@@ -1,6 +1,5 @@
 import type { Project, SearchResult } from '../models'
 
-/** Prose, title, synopsis, and notes, case-insensitive: the same rule the server applies, run over the local copy. */
 export function searchManuscript(project: Project, content: (id: string) => string, query: string): SearchResult[] {
   const needle = query.trim().toLowerCase()
   if (!needle) return []

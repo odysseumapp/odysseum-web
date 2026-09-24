@@ -4,11 +4,9 @@ import { descendantDocuments, folderDocument, folderItems, gridColumnFolder, kin
 const props = defineProps<{ project: Project; path: string }>()
 const emit = defineEmits<{ open: [item: FolderItem]; layout: [patch: Partial<FolderLayout>]; assign: [doc: DocumentSummary, links: string[]]; synopsis: [doc: DocumentSummary, synopsis: string]; note: [doc: DocumentSummary, col: DocumentSummary, note: string]; createDocument: [path: string] }>()
 const folder = computed(() => props.project.folders.find(item => item.path === props.path))
-// Columns are every document of one other folder: Threads unless you are in it, then Manuscript.
 const columnFolder = computed(() => gridColumnFolder(props.project, props.path))
 const columns = computed(() => columnFolder.value ? descendantDocuments(props.project, columnFolder.value.path) : [])
 const folderChoices = computed(() => props.project.folders.filter(item => item.path && item.path !== props.path).map(item => ({ label: item.path, value: item.id })))
-/** Rows are this folder's documents in order; each subfolder is a group that collapses into a roll-up of its members. */
 type Row = { doc: DocumentSummary; depth: number; group?: never; members?: never; own?: never } | { group: FolderSummary; depth: number; members: DocumentSummary[]; own?: DocumentSummary; doc?: never }
 const collapsed = ref(new Set<string>())
 const rows = computed<Row[]>(() => {
@@ -22,13 +20,11 @@ function toggleGroup(path: string) {
   else collapsed.value.add(path)
 }
 const itemOf = (doc: DocumentSummary): FolderItem => ({ key: doc.id, title: doc.title, document: doc })
-// Links are undirected; send the complete set so the other side is kept in step.
 const allLinks = (doc: DocumentSummary) => Array.from(new Set([...doc.links, ...props.project.documents.filter(other => other.links.includes(doc.id)).map(other => other.id)]))
 function toggle(doc: DocumentSummary, col: DocumentSummary) {
   const links = allLinks(doc)
   emit('assign', doc, linked(doc, col) ? links.filter(id => id !== col.id) : [...links, col.id])
 }
-// One synopsis is edited in place at a time: Enter or leaving the field saves, Escape discards.
 const editing = ref('')
 const draft = ref('')
 function editSynopsis(doc: DocumentSummary) { editing.value = doc.id; draft.value = doc.synopsis }

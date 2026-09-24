@@ -31,7 +31,6 @@ export class LocalChanges implements ILocalChanges {
     return this.context.mutations.run(async () => {
       const resolved = resolveOperation(this.context, { type: 'metadata', id, fields, base }) as Extract<LocalOp, { type: 'metadata' }>
       const existing = await this.find(op => op.type === 'metadata' && op.id === resolved.id)
-      // Coalesce waiting edits, but never replace an operation already being sent to the server.
       const original = existing?.op.type === 'metadata' ? existing.op.base : resolved.base
       await this.record({ ...resolved, base: original }, existing)
     })
@@ -73,7 +72,6 @@ export class LocalChanges implements ILocalChanges {
   async removeFolder(path: string) {
     return this.context.mutations.run(async () => {
       const view = await publishView(this.context)
-      // The folder's own hidden document goes with it; anything else makes the folder non-empty.
       if (!path || view?.documents.some(doc => (doc.folder === path && !isFolderDocument(doc.path)) || doc.folder.startsWith(path + '/'))
         || view?.folders.some(folder => folder.parent === path)) throw new Error('Only empty folders can be removed.')
       await this.record({ type: 'removeFolder', path })
@@ -83,7 +81,6 @@ export class LocalChanges implements ILocalChanges {
   async saveFolderLayout(path: string, patch: Partial<FolderLayout>) {
     return this.context.mutations.run(async () => {
       const resolved = resolveOperation(this.context, { type: 'folderLayout', path, patch }) as Extract<LocalOp, { type: 'folderLayout' }>
-      // Keep operations in order: a later layout may reference a document created between edits.
       await this.record(resolved)
     })
   }
@@ -93,7 +90,6 @@ export class LocalChanges implements ILocalChanges {
   }
 
   private async record(op: LocalOp, replace?: PendingOp) {
-    // An auto-increment key must be absent, not undefined, for IndexedDB to assign one.
     const pending: PendingOp = { slug: this.context.slug, op, updated: new Date().toISOString() }
     if (replace?.seq !== undefined) pending.seq = replace.seq
     await this.context.mirror.putOp(pending)

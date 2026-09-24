@@ -12,7 +12,6 @@ test('API documentation remains available directly from the production API witho
     expect(reference.status()).toBe(200)
     expect(reference.headers()['content-type']).toContain('text/html')
     expect(await reference.text()).toContain('Odysseum API')
-    // The site root redirects to the installed static UI; the SPA fallback does not cover other paths.
     const root = await request.get('/', { maxRedirects: 0 })
     expect(root.status()).toBe(302)
     expect(root.headers()['location']).toBe('/webui/')

@@ -1,7 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process'
 import path from 'node:path'
 
-// Packages the built UI, installs it into the isolated test server, then serves the API and UI from one process.
 const project = path.join(process.env.ODYSSEUM_SERVER_ROOT, 'server/Odysseum.Server/Odysseum.Server.csproj')
 const archive = path.resolve('.test-data/odysseum-webui.zip')
 const dotnet = ['run', '--project', project, '-c', 'Release', '--no-build', '--no-launch-profile', '--']

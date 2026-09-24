@@ -9,7 +9,6 @@ import { SyncEngine } from '../sync/SyncEngine'
 import { HistoryCache } from './HistoryCache'
 import { MutationQueue } from '../sync/MutationQueue'
 
-/** One open project: its local copy, the engine that keeps it in step with the server, and the ways to change it. */
 export class ProjectSession {
   readonly engine: ISyncEngine
   readonly changes: ILocalChanges
@@ -25,7 +24,6 @@ export class ProjectSession {
 
   get slug() { return this.context.slug }
 
-  /** Shows whatever this device already has. Returns false when the project has never been opened here. */
   async hydrate(): Promise<boolean> {
     const { mirror, listener } = this.context
     const view = await publishView(this.context)

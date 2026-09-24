@@ -14,7 +14,6 @@
 .document-editor.focus-mode .ProseMirror:focus-within > :not(.has-focus) { opacity: .4; transition: opacity .3s; }
 .document-editor .ProseMirror .selectedCell { background: var(--ui-bg-accented); }
 .document-editor .tableWrapper { overflow-x: auto; }
-/* A styled block shows its Pandoc fences in source view; how it looks otherwise is the project's Style documents' business. */
 .document-editor.show-source div[data-style]::before { content: '::: ' attr(data-style); }
 .document-editor.show-source div[data-style]::after { content: ':::'; }
 .document-editor.show-source div[data-style]::before, .document-editor.show-source div[data-style]::after { display: block; color: var(--ui-text-dimmed); white-space: pre; }

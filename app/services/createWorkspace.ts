@@ -14,7 +14,6 @@ import { openMirrorStore, type IMirrorStore, type MirroredDocument, type Pending
 import type { ISyncListener, SyncStatus } from '../sync/ISyncEngine'
 import { renameInOp } from '../storage/IMirrorStore'
 
-/** A document as shown in the editor: the server's copy (`base`/`revision`) plus whatever the writer has typed. */
 export interface Buffer {
   document: DocumentSummary
   content: string
@@ -25,13 +24,11 @@ export interface Buffer {
   conflict: DocumentContent | 'deleted' | null
 }
 
-// Projects are addressed as /p/<folder name>; the folder name is what the writer sees in their workspace.
 function slugFromUrl(path: string) {
   const match = path.match(/^\/p\/([^/]+)/)
   try { return match ? decodeURIComponent(match[1]) : '' } catch { return '' }
 }
 
-/** Reactive state for the UI over the workspace services. Every server or storage detail lives below this. */
 export function createWorkspace(router: Router, api: IOdysseumApi = new OdysseumApi(new FetchApiClient())) {
   const projects = ref<ProjectInfo[]>([])
   const templates = ref<ProjectTemplate[]>([])
@@ -49,7 +46,6 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
   const passwordRequired = ref(false)
   const allowDeletingDefaultFolders = ref(false)
   const loading = ref(true)
-  /** Scene details the server refused; the inspector picks these up as unsaved drafts. */
   const rejectedDetails = reactive(new Map<string, MetadataFields>())
   const documentRenames = reactive(new Map<string, string>())
   let mirror: IMirrorStore | undefined
@@ -80,7 +76,6 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
 
   function applyDocument(doc: MirroredDocument, pending: PendingEdit | undefined) {
     const existing = buffers.get(doc.id)
-    // Keystrokes not yet written to the mirror are newer than anything the engine can report.
     const typing = !!existing && !!session?.engine.isWriting(doc.id) && existing.content !== doc.content
     const content = typing ? existing!.content : pending?.content ?? doc.content
     if (!existing) {
@@ -102,7 +97,7 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
   }
 
   function rememberProject(next: string) {
-    try { localStorage.setItem('odysseum:last-project', next) } catch { /* Storage may be unavailable. */ }
+    try { localStorage.setItem('odysseum:last-project', next) } catch {  }
   }
 
   function listenerFor(target: () => string): ISyncListener {
@@ -126,7 +121,7 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
         if (buffer) { buffers.delete(from); buffer.document = { ...buffer.document, id: to }; buffers.set(to, buffer) }
         if (selectedId.value === from) {
           selectedId.value = to
-          try { localStorage.setItem(`odysseum:${project.value?.id}:last-document`, to) } catch { /* Storage may be unavailable. */ }
+          try { localStorage.setItem(`odysseum:${project.value?.id}:last-document`, to) } catch {  }
         }
         const rejected = rejectedDetails.get(from)
         if (rejected) { rejectedDetails.delete(from); rejectedDetails.set(to, rejected) }
@@ -169,7 +164,7 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
   async function open(id: string) {
     id = resolveId(id)
     selectedId.value = id
-    try { localStorage.setItem(`odysseum:${project.value?.id}:last-document`, id) } catch { /* Storage may be unavailable. */ }
+    try { localStorage.setItem(`odysseum:${project.value?.id}:last-document`, id) } catch {  }
     if (buffers.has(id) || !session) return
     const { mirror: m } = await services()
     const doc = await m.getDocument(session.slug, id)
@@ -177,7 +172,6 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
     else await session.engine.syncNow()
   }
 
-  /** Ctrl+S and the footer button: push what is pending right away. */
   async function save() { await session?.engine.syncNow() }
   async function refresh() { if (session) await session.engine.syncNow(); else await loadProjects() }
 
@@ -231,8 +225,7 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
       }
       rememberProject(next)
       let last: string | null = null
-      try { last = localStorage.getItem(`odysseum:${project.value?.id}:last-document`) } catch { /* Storage may be unavailable. */ }
-      // A folder's own hidden document is reached through its folder, so a fresh visit starts on a real document.
+      try { last = localStorage.getItem(`odysseum:${project.value?.id}:last-document`) } catch {  }
       const first = project.value?.documents.find(doc => doc.id === last) ?? project.value?.documents.find(doc => !isFolderDocument(doc.path)) ?? project.value?.documents[0]
       if (first) await open(first.id)
     } finally { loading.value = false }
@@ -242,7 +235,7 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
     await closeProject()
     slug.value = ''
     setUrl('', replaceHistory)
-    try { localStorage.removeItem('odysseum:last-project') } catch { /* Storage may be unavailable. */ }
+    try { localStorage.removeItem('odysseum:last-project') } catch {  }
     try { await loadProjects() } catch (ex) { showError(ex) }
   }
 
@@ -257,7 +250,6 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
     const created = await lib.create(title, templates.value.find(item => item.name === template))
     projects.value = [...projects.value, created]
     await openProject(created.slug)
-    // The template's documents are written by the server; once they arrive, start the writer on the first.
     if (!selectedId.value && session) {
       await session.engine.syncNow()
       const first = project.value?.documents.find(doc => !isFolderDocument(doc.path))
@@ -266,7 +258,6 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
     return created
   }
 
-  /** The session once every pending change is on the server: templates and versions are made from the server's copy. */
   async function settled() {
     if (!session) throw new Error('Open a project first.')
     await session.engine.syncNow()
@@ -288,7 +279,6 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
     return api.saveVersion(current.slug, name.trim())
   }
 
-  /** The server rewrites the files; pulling afterwards brings the restored prose into open documents. */
   async function restoreVersion(id: string) {
     const current = await settled()
     await api.restoreVersion(current.slug, id)
@@ -319,7 +309,6 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
         passwordRequired.value = info.passwordRequired
         allowDeletingDefaultFolders.value = info.allowDeletingDefaultFolders
       } else {
-        // Offline: work from the local copy; the server asks for the password again when it is back.
         authenticated.value = true
         sync.value = { ...sync.value, online: false }
         error.value = OFFLINE_MESSAGE
@@ -329,7 +318,7 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
       stopRouting ??= router.afterEach(onPopState)
       const fromUrl = slugFromUrl(router.currentRoute.value.path)
       let last = ''
-      try { last = localStorage.getItem('odysseum:last-project') ?? '' } catch { /* Storage may be unavailable. */ }
+      try { last = localStorage.getItem('odysseum:last-project') ?? '' } catch {  }
       const target = fromUrl || (projects.value.some(item => item.slug === last) ? last : projects.value.length === 1 ? projects.value[0].slug : '')
       if (target) await openProject(target, true)
       else setUrl('', true)
@@ -363,7 +352,6 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
 
   async function saveDetails(id: string, fields: MetadataFields, base: MetadataFields) {
     if (!session) throw new Error('Open a project first.')
-    // Hand the services plain data: Vue's reactive proxies cannot be stored in IndexedDB.
     await session.changes.updateMetadata(id, plain(fields), plain(base))
   }
 
@@ -434,7 +422,6 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
     if (deleted) await session?.engine.discard(deleted)
   }
 
-  /** Let go of text whose file was removed elsewhere. */
   async function discard() {
     const buffer = active.value
     if (!buffer || buffer.conflict !== 'deleted') return

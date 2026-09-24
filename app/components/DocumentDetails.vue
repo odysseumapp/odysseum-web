@@ -5,7 +5,6 @@ defineProps<{ fields: MetadataFields; dirty: boolean; saving: boolean }>()
 const emit = defineEmits<{ edit: []; reset: []; save: []; open: [doc: DocumentSummary]; history: []; move: [] }>()
 const { project, active, selectedId } = useWorkspace()
 const choices = computed(() => project.value ? documentChoices(project.value, selectedId.value).map(doc => ({ label: `${doc.title} · ${kindLabels[doc.kind]}`, value: doc.id, icon: kindIcons[doc.kind] })) : [])
-// What is saved, grouped by kind; the select above holds the draft.
 const linked = computed(() => {
   const docs = project.value ? linkedDocuments(project.value, selectedId.value) : []
   return kindOrder.map(kind => ({ kind, docs: docs.filter(doc => doc.kind === kind) })).filter(group => group.docs.length)
