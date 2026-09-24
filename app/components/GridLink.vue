@@ -1,11 +1,9 @@
 <script setup lang="ts">
 import type { DocumentSummary } from '~/models'
 import { linked } from '~/services/FolderStructure'
-/** Where a row meets a column: a mark when the two are linked, with an optional note that both ends share. */
 const props = defineProps<{ doc: DocumentSummary; col: DocumentSummary; name: string }>()
 const emit = defineEmits<{ toggle: []; note: [note: string] }>()
 const note = computed(() => props.doc.linkNotes?.[props.col.id] ?? props.col.linkNotes?.[props.doc.id] ?? '')
-// Enter or leaving the field saves, Escape discards.
 const editing = ref(false)
 const draft = ref('')
 function edit() { draft.value = note.value; editing.value = true }

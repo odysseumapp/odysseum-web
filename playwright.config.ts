@@ -17,7 +17,6 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
   },
-  // One .NET process serves the API and the installed static UI, as in production.
   webServer: {
     command: 'node tests/server.mjs',
     url: 'http://127.0.0.1:5082/health',

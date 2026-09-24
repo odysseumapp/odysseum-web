@@ -30,12 +30,12 @@ const createOpen = ref(false)
 const searchOpen = ref(false)
 const settingsOpen = ref(false)
 const templateOpen = ref(false)
+const versionsOpen = ref(false)
 const themeOpen = ref(false)
 const historyOpen = ref(false)
 const moveOpen = ref(false)
 const conflictOpen = ref(false)
 const editor = ref<{ format: (type: string) => void; setStyle: (name: string) => void; style: string }>()
-/** The project's Style documents as one stylesheet for the page, and the names a writer can pick from the toolbar. */
 const styles = computed(() => compileStyles((project.value?.documents ?? []).filter(isStyleDocument).map(doc => cssOf(workspace.contentOf(doc.id)))))
 const styleItems = computed(() => [{ label: 'No style', value: '' }, ...styles.value.names.map(name => ({ label: name, value: name }))])
 useHead({ style: [{ key: 'project-styles', textContent: () => styles.value.css }] })
@@ -65,7 +65,6 @@ watch(() => project.value?.folders, folders => {
   if (folders && !folders.some(folder => folder.path === folderPath.value)) folderPath.value = ''
 }, { immediate: true })
 watch(() => active.value?.document.folder, path => { if (path !== undefined && view.value === 'write') folderPath.value = path }, { immediate: true })
-// Writing always happens in the folder you are in: its own document, else its first, whichever way you got here.
 watch([view, folderPath], async () => {
   if (view.value !== 'write' || !project.value || active.value?.document.folder === folderPath.value) return
   const folder = currentFolder.value
@@ -75,7 +74,6 @@ watch([view, folderPath], async () => {
   else view.value = 'board'
 })
 
-/** Opening a document from a card, a search result or a link asks to write it; the sidebar only moves the cursor. */
 async function select(doc: DocumentSummary, write = true) {
   folderPath.value = doc.folder
   if (write) view.value = 'write'
@@ -91,7 +89,6 @@ function newDocument(path = folderPath.value, keep = false) {
   createOpen.value = true
 }
 function newFolder(parent = folderPath.value) { folderParent.value = parent; folderOpen.value = true }
-/** The view you chose follows you from folder to folder; a folder pinned to a view is the one exception. */
 function openFolder(folder: FolderSummary) {
   folderPath.value = folder.path
   mobileSidebar.value = false
@@ -113,9 +110,7 @@ async function reorder(path: string, from: string, to: string) {
   await run(() => workspace.saveFolderLayout(path, { itemOrder: ids }))
 }
 const layout = (patch: Partial<FolderLayout>) => run(() => workspace.saveFolderLayout(folderPath.value, patch))
-// Linking or unlinking from the grid is an ordinary metadata change on that document.
 const assign = (doc: DocumentSummary, links: string[]) => run(() => workspace.saveDetails(doc.id, { ...metadataOf(doc), links }, metadataOf(doc)))
-// A note on a link is shared by both ends; saving it from the row's document updates the column's too.
 const annotate = (doc: DocumentSummary, col: DocumentSummary, note: string) => run(() => workspace.saveDetails(doc.id, { ...metadataOf(doc), linkNotes: { ...metadataOf(doc).linkNotes, [col.id]: note } }, metadataOf(doc)))
 const describe =(doc: DocumentSummary, synopsis: string) => run(() => workspace.saveDetails(doc.id, { ...metadataOf(doc), synopsis }, metadataOf(doc)))
 const pin = () => run(() => workspace.saveFolderLayout(folderPath.value, { pinnedView: currentFolder.value?.pinnedView === view.value ? null : view.value }))
@@ -143,6 +138,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', shortcut))
         <UButton color="neutral" variant="ghost" icon="i-lucide-search" aria-label="Search documents" @click="searchOpen = true" />
         <UButton color="neutral" variant="ghost" icon="i-lucide-settings" aria-label="Project settings" @click="settingsOpen = true" />
         <UButton color="neutral" variant="ghost" icon="i-lucide-layout-template" aria-label="Project templates" @click="templateOpen = true" />
+        <UButton color="neutral" variant="ghost" icon="i-lucide-history" aria-label="Project versions" @click="versionsOpen = true" />
         <UButton color="neutral" variant="ghost" icon="i-lucide-download" aria-label="Export manuscript" @click="workspace.exportManuscript" />
         <UButton color="neutral" variant="ghost" icon="i-lucide-refresh-cw" aria-label="Sync now" @click="run(workspace.refresh)" />
         <UButton color="neutral" variant="ghost" icon="i-lucide-palette" aria-label="Appearance" @click="themeOpen = true" />
@@ -201,6 +197,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', shortcut))
     <CreateFolderModal v-model:open="folderOpen" :parent="folderParent" />
     <ProjectSettingsModal v-model:open="settingsOpen" />
     <ProjectTemplateModal v-model:open="templateOpen" />
+    <ProjectVersionsModal v-model:open="versionsOpen" @restored="view = 'write'; reading = false" />
     <ThemeModal v-model:open="themeOpen" />
     <DocumentSearchModal v-model:open="searchOpen" @select="select" />
     <DocumentHistoryModal v-model:open="historyOpen" @restored="view = 'write'; reading = false" />

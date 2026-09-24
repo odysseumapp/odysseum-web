@@ -1,4 +1,4 @@
-import type { ApiCollection, DocumentContent, FolderLayout, MetadataFields, Project, ProjectInfo, ProjectSettings, ProjectTemplate, SearchResult, ServerSettings, SessionInfo, Snapshot, Theme } from '../models'
+import type { ApiCollection, DocumentContent, FolderLayout, MetadataFields, Project, ProjectInfo, ProjectSettings, ProjectTemplate, ProjectVersion, SearchResult, ServerSettings, SessionInfo, Snapshot, Theme } from '../models'
 import type { IApiClient } from './IApiClient'
 import type { IOdysseumApi } from './IOdysseumApi'
 
@@ -38,6 +38,11 @@ export class OdysseumApi implements IOdysseumApi {
     return (await this.client.request<ApiCollection<SearchResult>>(`${this.project(slug)}/search?q=${encodeURIComponent(query)}`)).items
   }
   eventsUrl(slug: string) { return `/api${this.project(slug)}/events` }
+
+  private versions = (slug: string) => `${this.project(slug)}/versions`
+  async listVersions(slug: string) { return (await this.client.request<ApiCollection<ProjectVersion>>(this.versions(slug))).items }
+  saveVersion(slug: string, name: string) { return this.client.request<ProjectVersion>(this.versions(slug), 'POST', { name }) }
+  restoreVersion(slug: string, id: string) { return this.client.request<Project>(`${this.versions(slug)}/${encodeURIComponent(id)}/restore`, 'POST') }
 
   async listDocuments(slug: string) { return (await this.client.request<ApiCollection<DocumentContent>>(`${this.project(slug)}/documents`)).items }
   getDocument(slug: string, id: string) { return this.client.request<DocumentContent>(this.document(slug, id)) }

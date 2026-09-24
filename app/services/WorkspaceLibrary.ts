@@ -7,11 +7,9 @@ import { completeFolders, defaultTemplate, folderFor } from './FolderStructure'
 
 const TemplatesKey = 'odysseum:templates'
 
-/** The list of projects and the creation of new ones; works from the local copy when the server is away. */
 export class WorkspaceLibrary {
   constructor(private readonly api: IOdysseumApi, private readonly mirror: IMirrorStore) {}
 
-  /** Null when the server cannot be reached; the caller decides whether the local copy is enough to proceed. */
   async session(): Promise<SessionInfo | null> {
     try { return await this.api.getSession() }
     catch (ex) { if (isOffline(ex)) return null; throw ex }
@@ -20,7 +18,6 @@ export class WorkspaceLibrary {
   login(password: string) { return this.api.login(password) }
   logout() { return this.api.logout() }
 
-  /** Server list merged with projects created here that the server has not seen yet. */
   async list(): Promise<{ projects: ProjectInfo[]; online: boolean }> {
     let projects: ProjectInfo[]
     let online: boolean
@@ -42,26 +39,21 @@ export class WorkspaceLibrary {
     return { projects, online }
   }
 
-  /** The templates a new project can start from. Offline it is the list this browser last saw, so a project can still be made. */
   async templates(): Promise<ProjectTemplate[]> {
     try {
       const templates = await this.api.listTemplates()
-      try { localStorage.setItem(TemplatesKey, JSON.stringify(templates)) } catch { /* Storage may be unavailable. */ }
+      try { localStorage.setItem(TemplatesKey, JSON.stringify(templates)) } catch {  }
       return templates
     } catch (ex) {
       if (!isOffline(ex)) throw ex
       try {
         const stored = JSON.parse(localStorage.getItem(TemplatesKey) ?? 'null')
         if (Array.isArray(stored) && stored.length) return stored
-      } catch { /* Storage may be unavailable, or hold something this build cannot read. */ }
+      } catch {  }
       return [defaultTemplate]
     }
   }
 
-  /**
-   * Creates the project on this device first; the folder is created on the server when the project syncs.
-   * Until then the project shows the template's folders; its documents are written by the server and arrive with that sync.
-   */
   async create(title: string, template: ProjectTemplate = defaultTemplate): Promise<ProjectInfo> {
     const clean = title.trim()
     const existing = await this.mirror.listProjects()

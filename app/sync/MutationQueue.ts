@@ -1,4 +1,3 @@
-/** Serialize local mirror changes without holding the queue during network requests. */
 export class MutationQueue {
   private tail: Promise<unknown> = Promise.resolve()
   run<T>(action: () => Promise<T>): Promise<T> {

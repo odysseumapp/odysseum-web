@@ -10,18 +10,12 @@ const fields = (doc: DocumentSummary | MetadataFields): MetadataFields =>
     linkNotes: Object.fromEntries(Object.entries(doc.linkNotes ?? {}).filter(([, note]) => note).sort(([a], [b]) => a < b ? -1 : 1)) })
 const same = (a: MetadataFields, b: MetadataFields) => JSON.stringify(fields(a)) === JSON.stringify(fields(b))
 
-/**
- * Replays queued operations against the server in the order they were made. Each is applied against the
- * server's current state (a stale revision is retried once); one the server refuses for good is dropped
- * and reported, with the writer's text kept reachable.
- */
 export class OperationReplayer {
   constructor(private readonly context: SyncContext) {}
 
   async replay(): Promise<number> {
     let replayed = 0
     const attempts = new Map<number, number>()
-    // Always take the current head of the queue: applying one operation can rewrite the ids in those behind it.
     while (true) {
       const pending = await this.context.mutations.run(async () => {
         const [head] = await this.context.mirror.listOps(this.context.slug)
@@ -48,7 +42,6 @@ export class OperationReplayer {
     const { api, mirror, listener } = this.context
     switch (op.type) {
       case 'createProject': {
-        // A template deleted since the project was made here is no reason to lose the project: it starts from Default instead.
         const created = await api.createProject(op.title, op.settings.wordGoal, op.template).catch(ex => {
           if (op.template && ex instanceof ApiError && ex.status === 404) return api.createProject(op.title, op.settings.wordGoal)
           throw ex
@@ -76,7 +69,6 @@ export class OperationReplayer {
           const keys = new Set(folderItems(project, op.path).map(item => item.key))
           const layout = { ...folder, ...op.patch }
           layout.itemOrder = layout.itemOrder.filter(key => keys.has(key))
-          // A column folder removed while offline falls back to the default rather than failing the whole layout.
           if (layout.gridFolder && !project.folders.some(item => item.id === layout.gridFolder)) layout.gridFolder = null
           updated = await api.saveFolderLayout(slug, op.path, layout, project.revision)
         }
@@ -152,7 +144,6 @@ export class OperationReplayer {
     const message = ex instanceof Error ? ex.message : 'The server refused a change.'
     const op = pending.op
     if (op.type === 'create') {
-      // The file could not be created; keep the text as a draft the writer can save elsewhere.
       const edit = await mirror.getPending(slug, op.id)
       const kept: PendingEdit = { slug, id: op.id, content: edit?.content ?? op.content, baseRevision: '', updated: new Date().toISOString(), conflict: 'deleted' }
       await mirror.putPending(kept)

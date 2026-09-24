@@ -3,11 +3,9 @@ import { isOffline } from '../api/IApiClient'
 import type { Snapshot } from '../models'
 import type { IMirrorStore } from '../storage'
 
-/** Version history lives on the server; what has been fetched on this device stays readable offline. */
 export class HistoryCache {
   constructor(private readonly api: IOdysseumApi, private readonly mirror: IMirrorStore) {}
 
-  /** Returns the list and whether it came from the server (false: cached, possibly stale). */
   async list(slug: string, id: string): Promise<{ snapshots: Snapshot[]; fresh: boolean }> {
     try {
       const snapshots = await this.api.listSnapshots(slug, id)

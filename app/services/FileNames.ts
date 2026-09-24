@@ -1,8 +1,6 @@
-/** TODO: Find a way to stop mirroring these */
 
 import type { DocumentKind } from '../models'
 
-/** Mirrors the server's file-name rules so a scene or project created offline lands on the same path later. */
 export function fileName(title: string) {
   let result = title.replace(/[<>:"/\\|?*\x00-\x1f]/g, '-').replace(/^[ .-]+|[ .-]+$/g, '')
   if (!result) result = 'Untitled'
@@ -10,7 +8,6 @@ export function fileName(title: string) {
   return result
 }
 
-/** Same rules as the server: unique file name within the folder, `-2`, `-3`, … on collision. */
 export function pathFor(title: string, folder: string, taken: Set<string>) {
   const stem = fileName(title)
   const dir = folder.trim().replace(/^\/+|\/+$/g, '')
@@ -20,7 +17,6 @@ export function pathFor(title: string, folder: string, taken: Set<string>) {
   return path
 }
 
-/** A folder name for a new project, unique among those already known. */
 export function projectSlugFor(title: string, taken: Set<string>) {
   const stem = fileName(title)
   let slug = stem
@@ -28,7 +24,6 @@ export function projectSlugFor(title: string, taken: Set<string>) {
   return slug
 }
 
-/** The server's rule for what a document is, mirrored so documents created offline are classified the same way. */
 export function kindFor(path: string): DocumentKind {
   const top = path.split('/')[0].toLowerCase()
   if (top === 'characters') return 'character'
@@ -41,11 +36,9 @@ export function kindFor(path: string): DocumentKind {
 
 export const isStoryNote = (path: string) => kindFor(path) !== 'scene'
 
-/** Every folder owns one hidden document, `.Name.md`, that opens when the folder is opened. It counts toward nothing. */
 export const folderDocumentPath = (folder: string) => `${folder}/.${folder.split('/').at(-1)}.md`
 export function isFolderDocument(path: string) {
   const parts = path.split('/')
   return parts.length >= 2 && parts[parts.length - 1] === `.${parts[parts.length - 2]}.md`
 }
-/** A manuscript scene that counts toward word goals and export. */
 export const isScene = (path: string) => !isStoryNote(path) && !isFolderDocument(path)

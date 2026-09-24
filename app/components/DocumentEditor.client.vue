@@ -16,18 +16,13 @@ import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import type { Mark, Node as PMNode } from '@tiptap/pm/model'
 import { StyledBlock, StyledText, attributesFor } from '~/services/Styles'
 
-/** `editable` off is reading mode: the same rendering, nothing to type into and no Markdown hints. */
 const props = defineProps<{ modelValue: string; documentId: string; source: boolean; focus: boolean; editable: boolean; fontSize: number }>()
 const emit = defineEmits<{ 'update:modelValue': [value: string]; save: [] }>()
 const editor = shallowRef<Editor>()
-/** The style at the cursor, '' for none: of the selected text when there is a selection, else of the block. */
 const style = ref('')
 let newline = '\n'
-let current = '' // the markdown the editor last loaded or emitted, so echoes from the store do not reset the cursor
+let current = ''
 
-// Shows the Markdown syntax (`## `, `**`, `> `, `- `…) as dimmed, non-editable hints inside the
-// block the cursor is in, or in every block when the Source toggle is on. The document itself
-// stays rich text; the hints are widget decorations so they never end up in the saved file.
 const hintKey = new PluginKey('markdown-hints')
 const symbols: Record<string, [string, (mark: Mark) => string]> = {
   bold: ['**', () => '**'], italic: ['*', () => '*'], strike: ['~~', () => '~~'], code: ['`', () => '`'],
@@ -105,11 +100,9 @@ function create() {
   editor.value = new Editor({
     extensions: [
       StarterKit.configure({ link: { openOnClick: false } }), Markdown, MarkdownHints, Shortcuts, StyledBlock, StyledText,
-      // Curly quotes, em dashes and ellipses as you type; the symbol and fraction rules stay off so prose like 1/2 or 2x4 is left alone.
       Typography.configure({ copyright: false, trademark: false, servicemark: false, registeredTrademark: false, oneHalf: false, oneQuarter: false, threeQuarters: false, plusMinus: false, notEqual: false, laquo: false, raquo: false, multiplication: false, superscriptTwo: false, superscriptThree: false }),
       Highlight, Image, TaskList, TaskItem.configure({ nested: true }), TableKit.configure({ table: { resizable: false } }),
       Placeholder.configure({ placeholder: 'Start writing…' }),
-      // Marks the top-level block the cursor is in; focus mode dims the others.
       Focus.configure({ mode: 'shallowest' }),
     ],
     content: props.modelValue,
@@ -163,9 +156,7 @@ defineExpose({ format, setStyle, style, focus: () => editor.value?.commands.focu
 </script>
 
 <template>
-  <!-- The size is also a variable, so text tagged `normal` inside a resized style can come back to it. -->
   <EditorContent :editor="editor" class="document-editor document-prose" :class="{ 'show-source': source && editable, 'focus-mode': focus }" :style="{ fontSize: `${fontSize}px`, '--document-font-size': `${fontSize}px` }" />
-  <!-- Floating formatting menu over the selected text, so the top toolbar is not needed mid-paragraph. -->
   <BubbleMenu v-if="editor && editable" :editor="editor" :should-show="({ editor, from, to }) => from !== to && editor.isEditable && !editor.isActive('codeBlock')" class="flex items-center gap-0.5 rounded-md border border-default bg-default p-1 shadow-lg">
     <UButton v-for="action in bubble" :key="action.type" size="xs" color="neutral" :variant="editor.isActive(action.mark) ? 'soft' : 'ghost'" :icon="action.icon" :aria-label="action.label" :title="action.label" :aria-pressed="editor.isActive(action.mark)" @click="format(action.type)" />
   </BubbleMenu>
