@@ -1,17 +1,19 @@
-import { ApiError, OFFLINE_MESSAGE, type IApiClient } from './IApiClient'
+import { ApiError, OFFLINE_MESSAGE, type IApiClient, type RequestOptions } from './IApiClient'
 
 interface Envelope<T> { apiVersion: string; data?: T; error?: { code: number; message: string } }
 
 export class FetchApiClient implements IApiClient {
   constructor(private readonly root = '/api') {}
 
-  async request<T = void>(path: string, method = 'GET', body?: unknown): Promise<T> {
+  async request<T = void>(path: string, { method = 'GET', body, ifMatch }: RequestOptions = {}): Promise<T> {
     let response: Response
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (ifMatch !== undefined) headers['If-Match'] = `"${ifMatch}"`
     try {
       response = await fetch(`${this.root}${path}`, {
         method,
         credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: body === undefined ? undefined : JSON.stringify(body),
       })
     } catch {

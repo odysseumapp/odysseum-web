@@ -1,9 +1,10 @@
 <script setup lang="ts">
+import { settingsOf } from '~/models'
 const open = defineModel<boolean>('open', { required: true })
 const workspace = useWorkspace()
 const settings = reactive({ title: '', wordGoal: 50000, defaultSceneWordGoal: 1000 })
 const { busy, error, run } = useTask()
-watch(open, value => { if (value && workspace.project.value) { Object.assign(settings, workspace.project.value.settings); error.value = '' } })
+watch(open, value => { if (value && workspace.project.value) { Object.assign(settings, settingsOf(workspace.project.value.project)); error.value = '' } })
 const save = () => run(async () => { await workspace.updateSettings(settings); open.value = false })
 </script>
 

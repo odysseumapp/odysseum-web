@@ -4,36 +4,37 @@ import { FetchApiClient } from '../api/FetchApiClient'
 import { OdysseumApi } from '../api/OdysseumApi'
 import { ApiError, OFFLINE_MESSAGE, isOffline } from '../api/IApiClient'
 import type { IOdysseumApi } from '../api/IOdysseumApi'
-import type { DocumentContent, DocumentSummary, FolderLayout, MetadataFields, Project, ProjectInfo, ProjectSettings, ProjectTemplate, ServerSettings } from '../models'
-import { isFolderDocument } from '../services/FileNames'
-import { downloadText, exportMarkdown } from '../services/ManuscriptExport'
-import { searchManuscript } from '../services/ManuscriptSearch'
-import { ProjectSession } from '../services/ProjectSession'
-import { WorkspaceLibrary } from '../services/WorkspaceLibrary'
-import { openMirrorStore, type IMirrorStore, type MirroredDocument, type PendingEdit } from '../storage'
+import type { DocumentDetails, DocumentSummary, ProjectInfo, ProjectSettings, ProjectSnapshot, ProjectTemplate, ServerSettings, ViewSettings } from '../models'
+import { allDocuments } from './FolderStructure'
+import { downloadText, exportMarkdown } from './ManuscriptExport'
+import { searchManuscript } from './ManuscriptSearch'
+import { ProjectSession } from './ProjectSession'
+import { WorkspaceLibrary } from './WorkspaceLibrary'
+import { openMirrorRepository, type IMirrorRepository, type MirroredDocument, type PendingEdit } from '../storage'
+import type { ILiveUpdates } from '../sync/ILiveUpdates'
 import type { ISyncListener, SyncStatus } from '../sync/ISyncEngine'
-import { renameInOp } from '../storage/IMirrorStore'
+import { SignalRLiveUpdates } from '../sync/SignalRLiveUpdates'
 
 export interface Buffer {
   document: DocumentSummary
-  content: string
+  text: string
+  /** The text the server last had, as far as this device knows. */
   base: string
-  revision: string
   saving: boolean
   error: string
-  conflict: DocumentContent | 'deleted' | null
+  conflict: { document: DocumentSummary; text: string } | 'deleted' | null
 }
 
-function slugFromUrl(path: string) {
+function projectFromUrl(path: string) {
   const match = path.match(/^\/p\/([^/]+)/)
-  try { return match ? decodeURIComponent(match[1]) : '' } catch { return '' }
+  try { return match ? decodeURIComponent(match[1]!) : '' } catch { return '' }
 }
 
-export function createWorkspace(router: Router, api: IOdysseumApi = new OdysseumApi(new FetchApiClient())) {
+export function createWorkspace(router: Router, api: IOdysseumApi = new OdysseumApi(new FetchApiClient()), live: ILiveUpdates = new SignalRLiveUpdates()) {
   const projects = ref<ProjectInfo[]>([])
   const templates = ref<ProjectTemplate[]>([])
-  const slug = ref('')
-  const project = ref<Project | null>(null)
+  const projectId = ref('')
+  const project = ref<ProjectSnapshot | null>(null)
   const selectedId = ref('')
   const buffers = reactive(new Map<string, Buffer>())
   const active = computed(() => buffers.get(selectedId.value))
@@ -46,53 +47,51 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
   const passwordRequired = ref(false)
   const allowDeletingDefaultFolders = ref(false)
   const loading = ref(true)
-  const rejectedDetails = reactive(new Map<string, MetadataFields>())
-  const documentRenames = reactive(new Map<string, string>())
-  let mirror: IMirrorStore | undefined
+  const rejectedDetails = reactive(new Map<string, DocumentDetails>())
+  /** Local IDs that got server IDs, so that the UI can follow an item it holds by its old ID. */
+  const idRenames = reactive(new Map<string, string>())
+  let mirror: IMirrorRepository | undefined
   let library: WorkspaceLibrary | undefined
   let session: ProjectSession | undefined
   let stopRouting: (() => void) | undefined
-  const dirty = (buffer: Buffer) => buffer.content !== buffer.base
-  const contentOf = (id: string) => buffers.get(id)?.content ?? ''
+  let stopLive: (() => void) | undefined
+  let listTimer: ReturnType<typeof setTimeout> | undefined
+  const dirty = (buffer: Buffer) => buffer.text !== buffer.base
+  const textOf = (id: string) => buffers.get(id)?.text ?? ''
   const plain = <T>(value: T): T => JSON.parse(JSON.stringify(value))
-  const resolveId = (id: string) => { while (documentRenames.has(id)) id = documentRenames.get(id)!; return id }
-  function resolveSummary(doc: DocumentSummary): DocumentSummary {
-    let op = { type: 'metadata' as const, id: doc.id, fields: doc, base: doc }
-    for (const [from, to] of documentRenames) op = renameInOp(op, from, to) as typeof op
-    return { ...doc, ...op.fields, id: op.id }
-  }
-
-  function resolveProject(view: Project): Project {
-    return { ...view, documents: view.documents.map(resolveSummary), folders: view.folders.map(folder => ({ ...folder,
-      itemOrder: folder.itemOrder.map(resolveId),
-    })) }
-  }
+  const resolveId = (id: string) => { while (idRenames.has(id)) id = idRenames.get(id)!; return id }
+  const lastDocumentKey = () => `odysseum:${projectId.value}:last-document`
 
   async function services() {
-    mirror ??= await openMirrorStore()
+    mirror ??= await openMirrorRepository()
     library ??= new WorkspaceLibrary(api, mirror)
     return { mirror, library }
   }
 
+  function requireSession() {
+    if (!session) throw new Error('Open a project first.')
+    return session
+  }
+
   function applyDocument(doc: MirroredDocument, pending: PendingEdit | undefined) {
     const existing = buffers.get(doc.id)
-    const typing = !!existing && !!session?.engine.isWriting(doc.id) && existing.content !== doc.content
-    const content = typing ? existing!.content : pending?.content ?? doc.content
+    const typing = !!existing && !!session?.engine.isWriting(doc.id) && existing.text !== doc.text
+    const text = typing ? existing!.text : pending?.text ?? doc.text
     if (!existing) {
-      buffers.set(doc.id, { document: doc.document, content, base: doc.content, revision: doc.document.revision, saving: false, error: '', conflict: pending?.conflict ?? null })
+      buffers.set(doc.id, { document: doc.document, text, base: doc.text, saving: false, error: '', conflict: pending?.conflict ?? null })
       return
     }
-    const updatedFromServer = existing.base !== doc.content && !pending && !typing
+    // Only when the text on screen changes because of the server, not when one of our own saves comes back.
+    const updatedFromServer = existing.base !== doc.text && existing.text !== doc.text && !pending && !typing
     existing.document = doc.document
-    existing.base = doc.content
-    existing.revision = doc.document.revision
+    existing.base = doc.text
     existing.conflict = pending?.conflict ?? null
-    if (existing.content !== content) existing.content = content
-    if (updatedFromServer && doc.id === selectedId.value) notice.value = 'Updated from your files'
+    if (existing.text !== text) existing.text = text
+    if (updatedFromServer && doc.id === selectedId.value) notice.value = 'Updated from the server'
   }
 
   function selectFirst() {
-    const first = project.value?.documents.find(doc => buffers.has(doc.id))
+    const first = project.value ? allDocuments(project.value).find(doc => buffers.has(doc.id)) : undefined
     selectedId.value = first?.id ?? ''
   }
 
@@ -101,41 +100,41 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
   }
 
   function listenerFor(target: () => string): ISyncListener {
-    const current = () => slug.value === target()
+    const current = () => projectId.value === target()
     return {
       onProject(view) {
         if (!current()) return
-        project.value = resolveProject(view)
-        for (const summary of project.value.documents) {
+        project.value = view
+        for (const summary of view.documents) {
           const buffer = buffers.get(summary.id)
           if (buffer) buffer.document = summary
         }
       },
       onDocument(doc, pending) { if (current()) applyDocument(doc, pending) },
-      onDocumentRenamed(from, to) {
-        if (!current()) return
-        documentRenames.set(from, to)
-        session?.engine.renameDocument(from, to)
-        if (project.value) project.value = resolveProject(project.value)
-        const buffer = buffers.get(from)
-        if (buffer) { buffers.delete(from); buffer.document = { ...buffer.document, id: to }; buffers.set(to, buffer) }
-        if (selectedId.value === from) {
-          selectedId.value = to
-          try { localStorage.setItem(`odysseum:${project.value?.id}:last-document`, to) } catch {  }
+      onIdsReplaced(ids) {
+        const previousProject = projectId.value
+        if (ids[previousProject]) {
+          projectId.value = ids[previousProject]!
+          setUrl(projectId.value, true)
+          rememberProject(projectId.value)
+          projects.value = projects.value.filter(item => item.id !== previousProject)
+        } else if (!current()) return
+        for (const [from, to] of Object.entries(ids)) {
+          idRenames.set(from, to)
+          const buffer = buffers.get(from)
+          if (buffer) { buffers.delete(from); buffer.document = { ...buffer.document, id: to }; buffers.set(to, buffer) }
+          if (selectedId.value === from) {
+            selectedId.value = to
+            try { localStorage.setItem(lastDocumentKey(), to) } catch {  }
+          }
+          const rejected = rejectedDetails.get(from)
+          if (rejected) { rejectedDetails.delete(from); rejectedDetails.set(to, rejected) }
         }
-        const rejected = rejectedDetails.get(from)
-        if (rejected) { rejectedDetails.delete(from); rejectedDetails.set(to, rejected) }
       },
       onRemoved(id) {
         if (!current()) return
         buffers.delete(id)
         if (selectedId.value === id) selectFirst()
-      },
-      onProjectRenamed(next) {
-        if (!current()) return
-        slug.value = next
-        setUrl(next, true)
-        rememberProject(next)
       },
       onStatus(status) {
         if (!current()) return
@@ -143,7 +142,7 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
         for (const buffer of buffers.values()) buffer.saving = status.syncing && dirty(buffer) && !buffer.conflict
       },
       onProblem(message) { if (current()) error.value = message },
-      onMetadataRejected(id, fields, message) {
+      onDetailsRejected(id, fields, message) {
         if (!current()) return
         rejectedDetails.set(id, fields)
         error.value = message
@@ -152,28 +151,31 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
     }
   }
 
-  function edit(content: string) {
+  function edit(text: string) {
     const buffer = active.value
     if (!buffer) return
-    buffer.content = content
+    buffer.text = text
     buffer.error = ''
     notice.value = ''
-    session?.engine.edit(buffer.document.id, content)
+    session?.engine.edit(buffer.document.id, text)
   }
 
   async function open(id: string) {
     id = resolveId(id)
     selectedId.value = id
-    try { localStorage.setItem(`odysseum:${project.value?.id}:last-document`, id) } catch {  }
+    try { localStorage.setItem(lastDocumentKey(), id) } catch {  }
     if (buffers.has(id) || !session) return
     const { mirror: m } = await services()
-    const doc = await m.getDocument(session.slug, id)
-    if (doc) applyDocument(doc, await m.getPending(session.slug, id))
+    const doc = await m.getDocument(session.projectId, id)
+    if (doc) applyDocument(doc, await m.getPending(session.projectId, id))
     else await session.engine.syncNow()
   }
 
   async function save() { await session?.engine.syncNow() }
-  async function refresh() { if (session) await session.engine.syncNow(); else await loadProjects() }
+  async function refresh() {
+    if (session) { session.engine.requestFullPull(); await session.engine.syncNow() }
+    else await loadProjects()
+  }
 
   async function loadProjects() {
     const { library: lib } = await services()
@@ -192,7 +194,7 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
     session = undefined
     buffers.clear()
     rejectedDetails.clear()
-    documentRenames.clear()
+    idRenames.clear()
     selectedId.value = ''
     project.value = null
     notice.value = ''
@@ -201,13 +203,13 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
 
   async function openProject(next: string, replaceHistory = false) {
     await closeProject()
-    slug.value = next
+    projectId.value = next
     setUrl(next, replaceHistory)
     loading.value = true
     try {
       const { mirror: m } = await services()
       let opened: ProjectSession
-      opened = new ProjectSession(api, m, next, listenerFor(() => opened.slug))
+      opened = new ProjectSession(api, m, live, next, listenerFor(() => opened.projectId))
       session = opened
       const hydrated = await opened.hydrate()
       opened.start()
@@ -218,22 +220,23 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
             : "This project hasn't been opened on this device yet, so it isn't available offline."
           await opened.close()
           session = undefined
-          slug.value = ''
+          projectId.value = ''
           setUrl('', true)
           return
         }
       }
-      rememberProject(next)
+      rememberProject(projectId.value)
       let last: string | null = null
-      try { last = localStorage.getItem(`odysseum:${project.value?.id}:last-document`) } catch {  }
-      const first = project.value?.documents.find(doc => doc.id === last) ?? project.value?.documents.find(doc => !isFolderDocument(doc.path)) ?? project.value?.documents[0]
+      try { last = localStorage.getItem(lastDocumentKey()) } catch {  }
+      const documents = project.value?.documents ?? []
+      const first = documents.find(doc => doc.id === last) ?? (project.value ? allDocuments(project.value)[0] : undefined) ?? documents[0]
       if (first) await open(first.id)
     } finally { loading.value = false }
   }
 
   async function leaveProject(replaceHistory = false) {
     await closeProject()
-    slug.value = ''
+    projectId.value = ''
     setUrl('', replaceHistory)
     try { localStorage.removeItem('odysseum:last-project') } catch {  }
     try { await loadProjects() } catch (ex) { showError(ex) }
@@ -249,40 +252,28 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
     const { library: lib } = await services()
     const created = await lib.create(title, templates.value.find(item => item.name === template))
     projects.value = [...projects.value, created]
-    await openProject(created.slug)
+    await openProject(created.id)
     if (!selectedId.value && session) {
       await session.engine.syncNow()
-      const first = project.value?.documents.find(doc => !isFolderDocument(doc.path))
+      const first = project.value ? allDocuments(project.value)[0] : undefined
       if (first) await open(first.id)
     }
     return created
   }
 
+  /** Sends everything first, for actions that the server does on its own copy. */
   async function settled() {
-    if (!session) throw new Error('Open a project first.')
-    await session.engine.syncNow()
+    const current = requireSession()
+    await current.engine.syncNow()
     if (sync.value.pending) throw new Error(sync.value.online ? 'Some changes have not reached the server yet. Try again once they are saved.' : OFFLINE_MESSAGE)
-    return session
+    return current
   }
 
   async function saveTemplate(name: string) {
     const current = await settled()
-    const saved = await api.saveTemplate(name.trim(), current.slug)
+    const saved = await api.saveTemplate(name.trim(), current.projectId)
     await loadTemplates()
     return saved
-  }
-
-  async function versions() { return session ? api.listVersions(session.slug) : [] }
-
-  async function saveVersion(name: string) {
-    const current = await settled()
-    return api.saveVersion(current.slug, name.trim())
-  }
-
-  async function restoreVersion(id: string) {
-    const current = await settled()
-    await api.restoreVersion(current.slug, id)
-    await current.engine.syncNow()
   }
 
   async function deleteTemplate(name: string) {
@@ -290,12 +281,35 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
     await loadTemplates()
   }
 
-  function onPopState() {
+  async function projectVersions() { return session ? api.listVersions(session.projectId) : [] }
+
+  async function saveVersion(name: string) {
+    const current = await settled()
+    return api.saveVersion(current.projectId, name.trim())
+  }
+
+  async function restoreVersion(id: string) {
+    const current = await settled()
+    await api.restoreVersion(current.projectId, id)
+    current.engine.requestFullPull()
+    await current.engine.syncNow()
+  }
+
+  function onRoute() {
     if (!authenticated.value) return
-    const next = slugFromUrl(router.currentRoute.value.path)
-    if (next === slug.value) return
+    const next = projectFromUrl(router.currentRoute.value.path)
+    if (next === projectId.value) return
     if (next) void openProject(next, true).catch(showError)
     else void leaveProject(true).catch(showError)
+  }
+
+  /** Keeps the project list current: changes to projects reach every browser. */
+  function watchProjects() {
+    stopLive ??= live.onChanged(message => {
+      if (session || !message.changes.some(change => change.type === 'project')) return
+      clearTimeout(listTimer)
+      listTimer = setTimeout(() => { void loadProjects().catch(() => undefined) }, 300)
+    })
   }
 
   async function start() {
@@ -314,12 +328,14 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
         error.value = OFFLINE_MESSAGE
       }
       if (!authenticated.value) return
+      watchProjects()
+      void live.start()
       await loadProjects()
-      stopRouting ??= router.afterEach(onPopState)
-      const fromUrl = slugFromUrl(router.currentRoute.value.path)
+      stopRouting ??= router.afterEach(onRoute)
+      const fromUrl = projectFromUrl(router.currentRoute.value.path)
       let last = ''
       try { last = localStorage.getItem('odysseum:last-project') ?? '' } catch {  }
-      const target = fromUrl || (projects.value.some(item => item.slug === last) ? last : projects.value.length === 1 ? projects.value[0].slug : '')
+      const target = fromUrl || (projects.value.some(item => item.id === last) ? last : projects.value.length === 1 ? projects.value[0]!.id : '')
       if (target) await openProject(target, true)
       else setUrl('', true)
     } catch (ex) { showError(ex) }
@@ -343,66 +359,52 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
     authenticated.value = false
   }
 
-  async function create(title: string, folder: string, content?: string) {
-    if (!session) throw new Error('Open a project first.')
-    const created = await session.changes.createDocument(title, folder, content)
+  async function create(folderId: string, title: string, text?: string) {
+    const created = await requireSession().changes.createDocument(resolveId(folderId), title, text)
     await open(created.id)
     return created
   }
 
-  async function saveDetails(id: string, fields: MetadataFields, base: MetadataFields) {
-    if (!session) throw new Error('Open a project first.')
-    await session.changes.updateMetadata(id, plain(fields), plain(base))
+  async function saveDetails(id: string, fields: DocumentDetails, base: DocumentDetails) {
+    await requireSession().changes.updateDetails(resolveId(id), plain(fields), plain(base))
   }
-
-  async function move(path: string) {
-    if (!session || !active.value) return
-    await session.changes.moveDocument(active.value.document.id, path.replace(/\\/g, '/'))
+  async function rename(id: string, name: string) { await requireSession().changes.renameDocument(resolveId(id), name) }
+  /** Puts a document or folder at `index` among the target folder's children; also how the order changes. */
+  async function move(itemId: string, targetFolderId: string, index: number) {
+    await requireSession().changes.move(resolveId(itemId), resolveId(targetFolderId), index)
   }
-
-  async function reorder(ids: string[]) {
-    if (!session) return
-    await session.changes.reorder(ids)
+  async function createFolder(parentFolderId: string, name: string) { return requireSession().changes.createFolder(resolveId(parentFolderId), name) }
+  async function removeFolder(folderId: string) { await requireSession().changes.deleteFolder(resolveId(folderId)) }
+  async function updateLayout(folderId: string, change: { pinnedView?: string | null; views?: Record<string, ViewSettings | null> }) {
+    await requireSession().changes.updateLayout(resolveId(folderId), plain(change))
   }
-
-  async function createFolder(path: string) {
-    if (!session) throw new Error('Open a project first.')
-    await session.changes.createFolder(path)
+  async function updateSettings(settings: ProjectSettings) { await requireSession().changes.updateSettings(plain(settings)) }
+  async function link(firstDocumentId: string, secondDocumentId: string, note?: string) {
+    await requireSession().changes.createLink(resolveId(firstDocumentId), resolveId(secondDocumentId), note)
   }
-  async function removeFolder(path: string) {
-    if (!session) return
-    await session.changes.removeFolder(path)
-  }
-  async function saveFolderLayout(path: string, patch: Partial<FolderLayout>) {
-    if (!session) return
-    await session.changes.saveFolderLayout(path, plain(patch))
-  }
-
-  async function updateSettings(settings: ProjectSettings) {
-    if (!session) return
-    await session.changes.updateSettings(plain(settings))
-  }
+  async function unlink(linkId: string) { await requireSession().changes.deleteLink(resolveId(linkId)) }
+  async function setLinkNote(linkId: string, note: string) { await requireSession().changes.setLinkNote(resolveId(linkId), note) }
 
   function search(query: string) {
-    return project.value ? searchManuscript(project.value, contentOf, query) : []
+    return project.value ? searchManuscript(project.value, textOf, query) : []
   }
 
   function exportManuscript() {
     if (!project.value) return
-    downloadText(`${project.value.settings.title}.md`, exportMarkdown(project.value, contentOf))
+    downloadText(`${project.value.project.title}.md`, exportMarkdown(project.value, textOf))
   }
 
-  async function snapshots(id: string) {
-    if (!session) return { snapshots: [], fresh: false }
-    return session.history.list(session.slug, id)
+  async function documentVersions(id: string) {
+    if (!session) return { versions: [], fresh: false }
+    return session.history.list(session.projectId, resolveId(id))
   }
 
-  async function snapshot(id: string, snapshotId: string) {
-    if (!session) throw new Error('Open a project first.')
-    return session.history.read(session.slug, id, snapshotId)
+  async function documentVersionText(id: string, versionId: string) {
+    const current = requireSession()
+    return current.history.read(current.projectId, resolveId(id), versionId)
   }
 
-  async function useDisk() {
+  async function useServer() {
     const buffer = active.value
     if (!buffer || !buffer.conflict || buffer.conflict === 'deleted') return
     await session?.engine.useServer(buffer.document.id)
@@ -418,7 +420,9 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
     const buffer = active.value
     if (!buffer) return
     const deleted = buffer.conflict === 'deleted' ? buffer.document.id : ''
-    await create(`${buffer.document.title} — recovered`, buffer.document.folder, buffer.content)
+    const folderId = project.value?.folders.some(folder => folder.id === buffer.document.folderId) ? buffer.document.folderId : project.value?.project.rootFolderId
+    if (!folderId) return
+    await create(folderId, `${buffer.document.title} — recovered`, buffer.text)
     if (deleted) await session?.engine.discard(deleted)
   }
 
@@ -445,11 +449,19 @@ export function createWorkspace(router: Router, api: IOdysseumApi = new Odysseum
     session = undefined
     stopRouting?.()
     stopRouting = undefined
+    stopLive?.()
+    stopLive = undefined
+    void live.stop()
   }
 
   return {
-    projects, templates, slug, project, selectedId, active, error, notice, sync, connected, durable, authenticated, passwordRequired, allowDeletingDefaultFolders, loading, rejectedDetails, documentRenames,
-    dirty, contentOf, edit, open, save, refresh, start, login, logout, create, saveDetails, move, reorder, createFolder, removeFolder, saveFolderLayout, updateSettings, updateServerSettings, search, exportManuscript,
-    snapshots, snapshot, useDisk, keepMine, saveCopy, discard, showError, beforeUnload, stop, loadProjects, openProject, leaveProject, createProject, loadTemplates, saveTemplate, deleteTemplate, versions, saveVersion, restoreVersion,
+    api, services, projects, templates, projectId, project, selectedId, active, error, notice, sync, connected, durable, authenticated, passwordRequired,
+    allowDeletingDefaultFolders, loading, rejectedDetails, idRenames,
+    dirty, textOf, edit, open, save, refresh, start, login, logout, create, saveDetails, rename, move, createFolder, removeFolder, updateLayout,
+    updateSettings, link, unlink, setLinkNote, updateServerSettings, search, exportManuscript, documentVersions, documentVersionText,
+    useServer, keepMine, saveCopy, discard, showError, beforeUnload, stop, loadProjects, openProject, leaveProject, createProject, loadTemplates,
+    saveTemplate, deleteTemplate, projectVersions, saveVersion, restoreVersion,
   }
 }
+
+export type Workspace = ReturnType<typeof createWorkspace>

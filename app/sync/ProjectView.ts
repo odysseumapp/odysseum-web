@@ -1,88 +1,104 @@
-import { countWords, type DocumentSummary, type Project, type ProjectSettings } from '../models'
-import { kindFor } from '../services/FileNames'
-import { completeFolders, folderFor } from '../services/FolderStructure'
-import type { LocalOp, MirroredDocument, PendingOp } from '../storage'
+import type { DocumentSummary, Folder, Link, ProjectSnapshot } from '../models'
+import { kindInFolder } from '../services/FolderStructure'
+import type { LocalOp, MirroredDocument, MirroredProject, PendingOp } from '../storage'
 import type { SyncContext } from './SyncContext'
 
-export function overlay(server: Project, ops: PendingOp[], documents: Map<string, MirroredDocument>): Project {
-  let settings: ProjectSettings = server.settings
-  let folders = completeFolders(server.folders, server.documents, settings.title)
-  let list: DocumentSummary[] = server.documents.map(doc => ({ ...doc, links: [...(doc.links ?? [])], linkNotes: { ...(doc.linkNotes ?? {}) } }))
-  for (const { op } of ops) {
+const clone = <T>(value: T): T => structuredClone(value)
+const insertAt = (list: string[], id: string, index: number) => list.splice(Math.max(0, Math.min(index, list.length)), 0, id)
+
+/** The project the UI shows: the server's items with the queued local changes on top. */
+export function overlay(server: MirroredProject, ops: PendingOp[], documents: MirroredDocument[]): ProjectSnapshot {
+  const view: ProjectSnapshot = {
+    project: clone(server.project),
+    folders: clone(server.folders),
+    documents: documents.map(doc => clone(doc.document)),
+    links: clone(server.links),
+  }
+  const folder = (id: string) => view.folders.find(item => item.id === id)
+  const doc = (id: string) => view.documents.find(item => item.id === id)
+  const detach = (id: string) => { for (const item of view.folders) item.childIds = item.childIds.filter(child => child !== id) }
+  for (const { op } of ops) apply(op)
+  return view
+
+  function apply(op: LocalOp) {
     switch (op.type) {
+      case 'createProject': case 'settings':
+        Object.assign(view.project, op.settings)
+        break
       case 'createFolder':
-        if (!folders.some(folder => folder.path === op.path)) folders.push(folderFor(op.path))
+        if (!folder(op.localId)) view.folders.push({ id: op.localId, projectId: view.project.id, name: op.name, parentFolderId: op.parentFolderId, childIds: [],
+          ownDocumentId: null, pinnedView: null, views: {}, etag: '' } satisfies Folder)
+        if (!folder(op.parentFolderId)?.childIds.includes(op.localId)) folder(op.parentFolderId)?.childIds.push(op.localId)
         break
-      case 'removeFolder':
-        folders = folders.filter(folder => folder.path !== op.path)
+      case 'deleteFolder':
+        view.folders = view.folders.filter(item => item.id !== op.folderId)
+        detach(op.folderId)
         break
-      case 'folderLayout': {
-        const folder = folders.find(folder => folder.path === op.path)
-        if (folder) Object.assign(folder, op.patch)
+      case 'layout': {
+        const target = folder(op.folderId)
+        if (!target) break
+        if (op.pinnedView !== undefined) target.pinnedView = op.pinnedView
+        for (const [name, settings] of Object.entries(op.views ?? {})) {
+          if (settings === null) delete target.views[name]
+          else target.views[name] = clone(settings)
+        }
         break
       }
-      case 'create':
-        if (!list.some(doc => doc.id === op.id)) list.push(documents.get(op.id)?.document ?? summaryFor(op, list, settings))
-        folders = completeFolders(folders, list, settings.title)
+      case 'createDocument':
+        if (!folder(op.folderId)?.childIds.includes(op.localId)) folder(op.folderId)?.childIds.push(op.localId)
         break
-      case 'metadata': {
-        const doc = list.find(item => item.id === op.id)
-        if (!doc) break
-        const before = new Set(doc.links)
-        const after = new Set(op.fields.links ?? [])
-        for (const other of list) {
-          if (before.has(other.id) && !after.has(other.id)) other.links = other.links.filter(id => id !== op.id)
-          if (after.has(other.id) && !other.links.includes(op.id)) other.links = [...other.links, op.id]
-        }
-        const notes = Object.fromEntries(Object.entries(op.fields.linkNotes ?? doc.linkNotes).filter(([id, note]) => after.has(id) && note.trim()).map(([id, note]) => [id, note.trim()]))
-        for (const other of list) {
-          if (other.id === op.id || !(op.id in other.linkNotes || other.id in notes)) continue
-          const { [op.id]: _, ...rest } = other.linkNotes
-          other.linkNotes = other.id in notes ? { ...rest, [op.id]: notes[other.id]! } : rest
-        }
-        Object.assign(doc, op.fields, { linkNotes: notes })
+      case 'details':
+        Object.assign(doc(op.documentId) ?? {}, op.fields)
+        break
+      case 'rename': {
+        const target = doc(op.documentId)
+        if (target) target.name = `${op.name}.md`
         break
       }
       case 'move': {
-        const doc = list.find(item => item.id === op.id)
-        if (doc) { doc.kind = kindFor(op.path); doc.path = op.path; doc.folder = op.path.split('/').slice(0, -1).join('/') }
-        folders = completeFolders(folders, list, settings.title)
+        const target = folder(op.targetFolderId)
+        if (!target) break
+        detach(op.itemId)
+        insertAt(target.childIds, op.itemId, op.index)
+        if (op.itemType === 'folder') { const moved = folder(op.itemId); if (moved) moved.parentFolderId = target.id }
+        else { const moved = doc(op.itemId); if (moved) { moved.folderId = target.id; moved.kind = kindInFolder(view, target.id) } }
         break
       }
-      case 'order': {
-        const position = new Map(op.ids.map((id, index) => [id, index]))
-        const known = list.filter(doc => position.has(doc.id)).sort((a, b) => position.get(a.id)! - position.get(b.id)!)
-        list = [...known, ...list.filter(doc => !position.has(doc.id))].map((doc, index) => ({ ...doc, order: index }))
+      case 'createLink':
+        if (!view.links.some(link => link.id === op.localId)) view.links.push({ id: op.localId, projectId: view.project.id, firstDocumentId: op.firstDocumentId,
+          secondDocumentId: op.secondDocumentId, note: op.note, etag: '' } satisfies Link)
+        break
+      case 'deleteLink':
+        view.links = view.links.filter(link => link.id !== op.linkId)
+        break
+      case 'linkNote': {
+        const link = view.links.find(item => item.id === op.linkId)
+        if (link) link.note = op.note
         break
       }
-      case 'settings':
-      case 'createProject':
-        settings = op.settings
-        break
     }
   }
-  return { ...server, settings, documents: list, folders: completeFolders(folders, list, settings.title) }
 }
 
-export function summaryFor(op: Extract<LocalOp, { type: 'create' }>, existing: DocumentSummary[], settings: ProjectSettings): DocumentSummary {
+/** A document made on this device, until the server answers. */
+export function localDocument(view: ProjectSnapshot | undefined, op: Extract<LocalOp, { type: 'createDocument' }>, name: string): DocumentSummary {
   return {
-    id: op.id, path: op.path, title: op.title, folder: op.folder, synopsis: '', notes: '', status: 'draft',
-    wordGoal: settings.defaultSceneWordGoal, order: existing.length ? Math.max(...existing.map(doc => doc.order)) + 1 : 0,
-    wordCount: countWords(op.content), revision: '', lastModified: new Date().toISOString(),
-    kind: kindFor(op.path), links: [], linkNotes: {},
+    id: op.localId, projectId: view?.project.id ?? '', folderId: op.folderId, name, kind: view ? kindInFolder(view, op.folderId) : 'scene',
+    isFolderDocument: false, title: op.title, synopsis: '', notes: '', status: 'draft', wordGoal: view?.project.defaultSceneWordGoal ?? 0,
+    wordCount: 0, lastModified: new Date().toISOString(), etag: '',
   }
 }
 
-export async function publishView(context: SyncContext): Promise<Project | undefined> {
-  const mirrored = await context.mirror.getProject(context.slug)
+export async function publishView(context: SyncContext): Promise<ProjectSnapshot | undefined> {
+  const mirrored = await context.mirror.getProject(context.projectId)
   if (!mirrored) return undefined
-  const [ops, documents] = await Promise.all([context.mirror.listOps(context.slug), context.mirror.listDocuments(context.slug)])
-  const view = overlay(mirrored.project, ops, new Map(documents.map(doc => [doc.id, doc])))
+  const [ops, documents] = await Promise.all([context.mirror.listOps(context.projectId), context.mirror.listDocuments(context.projectId)])
+  const view = overlay(mirrored, ops, documents)
   context.listener.onProject(view)
   return view
 }
 
 export async function countPending(context: SyncContext) {
-  const [edits, ops] = await Promise.all([context.mirror.listPending(context.slug), context.mirror.listOps(context.slug)])
+  const [edits, ops] = await Promise.all([context.mirror.listPending(context.projectId), context.mirror.listOps(context.projectId)])
   return edits.length + ops.length
 }

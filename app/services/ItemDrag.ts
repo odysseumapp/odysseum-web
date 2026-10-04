@@ -1,10 +1,14 @@
-export function startItemDrag(event: DragEvent, path: string, key: string) {
-  event.dataTransfer?.setData('application/x-odysseum-item', JSON.stringify({ path, key }))
+const TYPE = 'application/x-odysseum-item'
+
+export function startItemDrag(event: DragEvent, folderId: string, id: string) {
+  event.dataTransfer?.setData(TYPE, JSON.stringify({ folderId, id }))
   if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
 }
-export function draggedItem(event: DragEvent, path: string): string | undefined {
+
+/** The ID of the item dragged from the same folder, if any. */
+export function draggedItem(event: DragEvent, folderId: string): string | undefined {
   try {
-    const item = JSON.parse(event.dataTransfer?.getData('application/x-odysseum-item') ?? '')
-    if (item.path === path && typeof item.key === 'string') return item.key
+    const item = JSON.parse(event.dataTransfer?.getData(TYPE) ?? '')
+    if (item.folderId === folderId && typeof item.id === 'string') return item.id
   } catch {  }
 }

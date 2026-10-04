@@ -1,15 +1,17 @@
 <script setup lang="ts">
 import type { DocumentSummary } from '~/models'
+import { folderChoices } from '~/services/FolderStructure'
 const open = defineModel<boolean>('open', { required: true })
-const props = defineProps<{ kind: string; folder: string }>()
+const props = defineProps<{ kind: string; folderId: string }>()
 const emit = defineEmits<{ created: [doc: DocumentSummary] }>()
 const workspace = useWorkspace()
 const title = ref('')
-const folder = ref('')
+const folderId = ref('')
+const folders = computed(() => workspace.project.value ? folderChoices(workspace.project.value) : [])
 const { busy, error, run } = useTask()
-watch(open, value => { if (value) { title.value = ''; folder.value = props.folder; error.value = '' } })
+watch(open, value => { if (value) { title.value = ''; folderId.value = props.folderId; error.value = '' } })
 const create = () => run(async () => {
-  const doc = await workspace.create(title.value, folder.value)
+  const doc = await workspace.create(folderId.value, title.value)
   open.value = false
   emit('created', doc)
 })
@@ -20,7 +22,7 @@ const create = () => run(async () => {
     <template #body>
       <form class="space-y-4" @submit.prevent="create">
         <UFormField label="Title" required><UInput v-model="title" autofocus required maxlength="200" class="w-full" /></UFormField>
-        <UFormField label="Folder" description="Use / for nested folders."><UInput v-model="folder" class="w-full" /></UFormField>
+        <UFormField label="Folder"><USelect v-model="folderId" :items="folders" class="w-full" /></UFormField>
         <UAlert v-if="error" color="error" :description="error" role="alert" />
         <UButton type="submit" :loading="busy">Create {{ kind }}</UButton>
       </form>

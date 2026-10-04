@@ -19,19 +19,23 @@ test('API documentation remains available directly from the production API witho
   } finally { await request.dispose() }
 })
 
-test('standard JSON writes work against the API and preserve API response headers', async ({ request }) => {
+test('writes send the item ETag and keep the API response headers', async ({ request }) => {
   expect((await request.post('/api/login', { data: { password: 'integration-password' } })).status()).toBe(200)
   const createdProject = await request.post('/api/projects', { data: { title: `API check ${Date.now()}` } })
   expect(createdProject.status()).toBe(201)
   const project = (await createdProject.json()).data
-  const documents = `/api/projects/${encodeURIComponent(project.slug)}/documents`
-  const createdDocument = await request.post(documents, { data: { title: 'Scene', folder: 'Manuscript', content: 'First draft.' } })
+  const folders = (await (await request.get(`/api/projects/${project.id}/folders`)).json()).data.items
+  const manuscript = folders.find((folder: { name: string }) => folder.name === 'Manuscript')
+  const createdDocument = await request.post('/api/documents', { data: { folderId: manuscript.id, title: 'Scene', text: 'First draft.' } })
   expect(createdDocument.status()).toBe(201)
   const original = (await createdDocument.json()).data
-  const url = `${documents}/${original.document.id}`
-  const saved = await request.put(url, { data: { content: 'Revised draft.', revision: original.document.revision } })
+  const url = `/api/documents/${original.id}/text`
+  expect((await request.put(url, { data: { text: 'No ETag.' } })).status()).toBe(428)
+  const saved = await request.put(url, { data: { text: 'Revised draft.' }, headers: { 'If-Match': `"${original.etag}"` } })
   expect(saved.status()).toBe(200)
   expect(saved.headers()['cache-control']).toBe('no-store')
   expect(saved.headers()['x-content-type-options']).toBe('nosniff')
-  expect((await (await request.get(url)).json()).data.content).toBe('Revised draft.')
+  expect((await saved.json()).data.wordCount).toBe(2)
+  expect((await request.put(url, { data: { text: 'Stale.' }, headers: { 'If-Match': `"${original.etag}"` } })).status()).toBe(412)
+  expect((await (await request.get(url)).json()).data.text).toBe('Revised draft.')
 })

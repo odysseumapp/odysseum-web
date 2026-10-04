@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import type { ProjectVersion } from '~/models'
+import type { Version } from '~/models'
 const open = defineModel<boolean>('open', { required: true })
 const emit = defineEmits<{ restored: [] }>()
 const workspace = useWorkspace()
 const { sync } = workspace
 const { busy, error, run } = useTask()
-const versions = ref<ProjectVersion[]>([])
+const versions = ref<Version[]>([])
 const saveAs = ref('')
 const confirming = ref('')
 const notice = ref('')
@@ -15,25 +15,25 @@ watch(open, value => {
   confirming.value = ''
   notice.value = ''
   saveAs.value = ''
-  void run(async () => { versions.value = await workspace.versions() })
+  void run(async () => { versions.value = await workspace.projectVersions() })
 })
 const clean = computed(() => saveAs.value.trim())
 const canSave = computed(() => clean.value.length > 0 && clean.value.length <= 200 && sync.value.online)
-const when = (version: ProjectVersion) => new Date(version.saved).toLocaleString()
-const label = (version: ProjectVersion) => version.name ?? 'Automatic'
-const files = (version: ProjectVersion) => `${version.changes} ${version.changes === 1 ? 'file' : 'files'}`
+const when = (version: Version) => new Date(version.saved).toLocaleString()
+const label = (version: Version) => version.name ?? 'Automatic'
+const files = (version: Version) => `${version.changes} ${version.changes === 1 ? 'file' : 'files'}`
 const save = () => run(async () => {
   notice.value = ''
   const saved = await workspace.saveVersion(clean.value)
-  versions.value = await workspace.versions()
+  versions.value = await workspace.projectVersions()
   saveAs.value = ''
   notice.value = `Saved “${saved.name}”.`
 })
-const restore = (version: ProjectVersion) => run(async () => {
+const restore = (version: Version) => run(async () => {
   notice.value = ''
   await workspace.restoreVersion(version.id)
   confirming.value = ''
-  versions.value = await workspace.versions()
+  versions.value = await workspace.projectVersions()
   notice.value = `Restored “${label(version)}” from ${when(version)}. What you had before is the newest version.`
   emit('restored')
 })

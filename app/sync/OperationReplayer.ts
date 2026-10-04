@@ -1,24 +1,22 @@
-import { ApiError, isOffline } from '../api/IApiClient'
-import type { DocumentSummary, MetadataFields } from '../models'
+import { ApiError, isETagMismatch, isNotFound, isOffline } from '../api/IApiClient'
+import { detailsOf, type DocumentDetails, type Folder } from '../models'
+import { folderPath } from '../services/FolderStructure'
 import type { LocalOp, PendingEdit, PendingOp } from '../storage'
-import type { SyncContext } from './SyncContext'
-import { publishView } from './ProjectView'
-import { folderItems } from '../services/FolderStructure'
+import { publishView, overlay } from './ProjectView'
+import { advanceDocument, changeProject, replaceIds, upsert, type SyncContext } from './SyncContext'
 
-const fields = (doc: DocumentSummary | MetadataFields): MetadataFields =>
-  ({ title: doc.title, synopsis: doc.synopsis, notes: doc.notes, status: doc.status, wordGoal: doc.wordGoal, links: [...(doc.links ?? [])].sort(),
-    linkNotes: Object.fromEntries(Object.entries(doc.linkNotes ?? {}).filter(([, note]) => note).sort(([a], [b]) => a < b ? -1 : 1)) })
-const same = (a: MetadataFields, b: MetadataFields) => JSON.stringify(fields(a)) === JSON.stringify(fields(b))
+const same = (a: DocumentDetails, b: DocumentDetails) => JSON.stringify(detailsOf(a)) === JSON.stringify(detailsOf(b))
 
+/** Sends the queued changes in order. Each write sends the ETag the mirror holds for the item. When the item changed on
+ *  the server (412), the replayer reads it again and tries once more; other refusals drop the change with a message. */
 export class OperationReplayer {
   constructor(private readonly context: SyncContext) {}
 
   async replay(): Promise<number> {
     let replayed = 0
-    const attempts = new Map<number, number>()
     while (true) {
       const pending = await this.context.mutations.run(async () => {
-        const [head] = await this.context.mirror.listOps(this.context.slug)
+        const [head] = await this.context.mirror.listOps(this.context.projectId)
         this.context.replaying = head?.seq
         return head
       })
@@ -29,131 +27,207 @@ export class OperationReplayer {
         replayed++
       } catch (ex) {
         if (isOffline(ex)) throw ex
-        const tries = (attempts.get(pending.seq!) ?? 0) + 1
-        attempts.set(pending.seq!, tries)
-        if (ex instanceof ApiError && ex.status === 409 && tries < 2) continue
         await this.giveUp(pending, ex)
       } finally { this.context.replaying = undefined }
     }
     return replayed
   }
 
+  /** Runs the write; on 412 reads the item again and runs it once more with the new ETag. */
+  private async retrying<T>(write: () => Promise<T>, refresh: () => Promise<unknown>): Promise<T> {
+    try { return await write() }
+    catch (ex) {
+      if (!isETagMismatch(ex)) throw ex
+      await refresh()
+      return write()
+    }
+  }
+
+  private async mirrored() {
+    const mirrored = await this.context.mirror.getProject(this.context.projectId)
+    if (!mirrored) throw new ApiError(404, 'The project is not on this device any more.')
+    return mirrored
+  }
+  private async folder(id: string) {
+    const folder = (await this.mirrored()).folders.find(item => item.id === id)
+    if (!folder) throw new ApiError(404, 'The folder no longer exists.')
+    return folder
+  }
+  private async storeFolders(...folders: Folder[]) { await changeProject(this.context, project => { for (const folder of folders) upsert(project.folders, folder) }) }
+  private async refreshFolder(id: string) { await this.storeFolders(await this.context.api.getFolder(id)) }
+  private async refreshDocument(id: string) {
+    const before = await this.context.mirror.getDocument(this.context.projectId, id)
+    const fresh = await this.context.api.getDocument(id)
+    // The text may have changed too, so the stored text keeps its old ETag; the next pull reads it again if needed.
+    if (before) await this.context.mirror.putDocuments([{ ...before, document: fresh }])
+    return fresh
+  }
+  private async etagOf(documentId: string) {
+    const doc = await this.context.mirror.getDocument(this.context.projectId, documentId)
+    if (!doc) throw new ApiError(404, 'The document is not on this device any more.')
+    return doc
+  }
+
   private async apply(op: LocalOp) {
-    const { api, mirror, listener } = this.context
+    const { api, mirror } = this.context
     switch (op.type) {
-      case 'createProject': {
-        const created = await api.createProject(op.title, op.settings.wordGoal, op.template).catch(ex => {
-          if (op.template && ex instanceof ApiError && ex.status === 404) return api.createProject(op.title, op.settings.wordGoal)
-          throw ex
-        })
-        if (created.slug !== this.context.slug) {
-          await mirror.renameProject(this.context.slug, created.slug)
-          this.context.slug = created.slug
-          listener.onProjectRenamed(created.slug)
-        }
-        const project = await api.getProject(this.context.slug)
-        const updated = JSON.stringify(project.settings) !== JSON.stringify(op.settings)
-          ? await api.updateSettings(this.context.slug, op.settings, project.revision) : project
-        await mirror.putProject({ slug: this.context.slug, project: updated, syncedAt: new Date().toISOString() })
-        break
+      case 'createProject': return this.createProject(op)
+      case 'settings': {
+        const project = await this.retrying(async () => api.updateProjectSettings(this.context.projectId, op.settings, (await this.mirrored()).project.etag),
+          async () => { const fresh = await api.getProject(this.context.projectId); await changeProject(this.context, p => { p.project = fresh }) })
+        await changeProject(this.context, p => { p.project = project })
+        return
       }
-      case 'createFolder': case 'removeFolder': case 'folderLayout': {
-        const slug = this.context.slug
-        const project = await api.getProject(slug)
-        let updated
-        if (op.type === 'createFolder') updated = await api.createFolder(slug, op.path, project.revision)
-        else if (op.type === 'removeFolder') updated = await api.removeFolder(slug, op.path, project.revision)
-        else {
-          const folder = project.folders.find(item => item.path === op.path)
-          if (!folder) throw new ApiError(404, 'The folder no longer exists, so its view could not be saved.')
-          const keys = new Set(folderItems(project, op.path).map(item => item.key))
-          const layout = { ...folder, ...op.patch }
-          layout.itemOrder = layout.itemOrder.filter(key => keys.has(key))
-          if (layout.gridFolder && !project.folders.some(item => item.id === layout.gridFolder)) layout.gridFolder = null
-          updated = await api.saveFolderLayout(slug, op.path, layout, project.revision)
-        }
-        await mirror.putProject({ slug, project: updated, syncedAt: new Date().toISOString() })
-        break
+      case 'createFolder': {
+        const created = await api.createFolder(op.parentFolderId, op.name)
+        await replaceIds(this.context, { [op.localId]: created.id })
+        await this.storeFolders(created, await api.getFolder(created.parentFolderId!))
+        return
       }
-      case 'create': {
-        const slug = this.context.slug
-        const created = await api.createDocument(slug, op.title, op.folder, op.content)
-        const real = created.document.id
+      case 'deleteFolder': {
+        let parentId: string | null = null
+        try {
+          await this.retrying(async () => { const folder = await this.folder(op.folderId); parentId = folder.parentFolderId; await api.deleteFolder(folder.id, folder.etag) },
+            () => this.refreshFolder(op.folderId))
+        } catch (ex) { if (!isNotFound(ex)) throw ex }
+        await changeProject(this.context, p => { p.folders = p.folders.filter(folder => folder.id !== op.folderId) })
+        if (parentId) await this.refreshFolder(parentId)
+        return
+      }
+      case 'layout': {
+        const folder = await this.retrying(async () => {
+          const current = await this.folder(op.folderId)
+          const pinnedView = op.pinnedView !== undefined ? op.pinnedView : current.pinnedView
+          return api.updateFolderLayout(current.id, { pinnedView, views: op.views }, current.etag)
+        }, () => this.refreshFolder(op.folderId))
+        await this.storeFolders(folder)
+        return
+      }
+      case 'createDocument': {
+        const created = await api.createDocument(op.folderId, op.title, op.text)
         await this.context.mutations.run(async () => {
-          if (real !== op.id) {
-            await mirror.renameDocument(slug, op.id, real)
-            this.context.documentIds.set(op.id, real)
-            listener.onDocumentRenamed(op.id, real)
-          }
-          const doc = { slug, id: real, document: created.document, content: created.content }
+          await replaceIds(this.context, { [op.localId]: created.id })
+          const { projectId } = this.context
+          const doc = { projectId, id: created.id, document: created, text: op.text, textEtag: created.etag }
           await mirror.putDocuments([doc])
-          const mirrored = await mirror.getProject(slug)
-          if (mirrored) await mirror.putProject({ ...mirrored, project: { ...mirrored.project,
-            documents: [...mirrored.project.documents.filter(item => item.id !== op.id && item.id !== real), created.document],
-          } })
-          const edit = await mirror.getPending(slug, real)
-          if (edit && edit.content === created.content) await mirror.deletePending(slug, real)
-          else if (edit) { edit.baseRevision = created.document.revision; await mirror.putPending(edit) }
-          const view = await publishView(this.context)
-          listener.onDocument({ ...doc, document: view?.documents.find(item => item.id === real) ?? doc.document }, edit && edit.content !== created.content ? edit : undefined)
+          const edit = await mirror.getPending(projectId, created.id)
+          if (edit && edit.text === op.text) await mirror.deletePending(projectId, created.id)
+          else if (edit) { edit.baseEtag = created.etag; edit.baseText = op.text; await mirror.putPending(edit) }
+          this.context.listener.onDocument(doc, edit && edit.text !== op.text ? edit : undefined)
         })
-        break
+        await this.refreshFolder(created.folderId)
+        return
       }
-      case 'metadata': {
-        const slug = this.context.slug
-        const project = await api.getProject(slug)
-        const current = project.documents.find(doc => doc.id === op.id)
-        if (!current) throw new ApiError(404, `"${op.fields.title}" no longer exists on the server, so its details were not saved.`)
-        if (!same(current, op.base) && !same(current, op.fields)) {
-          listener.onMetadataRejected(op.id, op.fields, `Details for "${current.title}" changed elsewhere. Your version is back in the inspector to review.`)
-          break
+      case 'details': {
+        const before = await this.etagOf(op.documentId)
+        let current = before.document
+        if (!same(current, op.base) && same(current, op.fields)) return
+        let saved
+        try { saved = await api.updateDocumentDetails(op.documentId, op.fields, current.etag) }
+        catch (ex) {
+          if (!isETagMismatch(ex)) throw ex
+          current = await this.refreshDocument(op.documentId)
+          if (same(current, op.fields)) return
+          if (!same(current, op.base)) {
+            this.context.listener.onDetailsRejected(op.documentId, op.fields, `Details for "${current.title}" changed elsewhere. Your version is back in the inspector to review.`)
+            return
+          }
+          saved = await api.updateDocumentDetails(op.documentId, op.fields, current.etag)
         }
-        const updated = await api.updateMetadata(slug, op.id, op.fields, project.revision)
-        await mirror.putProject({ slug, project: updated, syncedAt: new Date().toISOString() })
-        break
+        await advanceDocument(this.context, await mirror.getDocument(this.context.projectId, op.documentId), saved)
+        return
+      }
+      case 'rename': {
+        const saved = await this.retrying(async () => api.renameDocument(op.documentId, op.name, (await this.etagOf(op.documentId)).document.etag),
+          () => this.refreshDocument(op.documentId))
+        await advanceDocument(this.context, await mirror.getDocument(this.context.projectId, op.documentId), saved)
+        return
       }
       case 'move': {
-        const slug = this.context.slug
-        const current = await api.getDocument(slug, op.id)
-        if (current.document.path === op.path) break
-        const moved = await api.moveDocument(slug, op.id, op.path, current.document.revision)
-        await mirror.putDocuments([{ slug, id: op.id, document: moved.document, content: moved.content }])
-        break
+        if (op.itemType === 'folder') {
+          const moved = await this.retrying(async () => api.moveFolder(op.itemId, op.targetFolderId, op.index, (await this.folder(op.itemId)).etag),
+            () => this.refreshFolder(op.itemId))
+          await this.storeFolders(moved.folder, moved.oldParentFolder, moved.newParentFolder)
+        } else {
+          const moved = await this.retrying(async () => api.moveDocument(op.itemId, op.targetFolderId, op.index, (await this.etagOf(op.itemId)).document.etag),
+            () => this.refreshDocument(op.itemId))
+          await this.storeFolders(moved.oldFolder, moved.newFolder)
+          await advanceDocument(this.context, await mirror.getDocument(this.context.projectId, op.itemId), moved.document)
+        }
+        return
       }
-      case 'order': {
-        const slug = this.context.slug
-        const project = await api.getProject(slug)
-        const known = new Set(project.documents.map(doc => doc.id))
-        const ids = [...op.ids.filter(id => known.has(id)), ...project.documents.filter(doc => !op.ids.includes(doc.id)).map(doc => doc.id)]
-        await api.reorder(slug, ids, project.revision)
-        break
+      case 'createLink': {
+        const link = await api.createLink(op.firstDocumentId, op.secondDocumentId, op.note)
+        await replaceIds(this.context, { [op.localId]: link.id })
+        await changeProject(this.context, p => upsert(p.links, link))
+        return
       }
-      case 'settings': {
-        const slug = this.context.slug
-        const project = await api.getProject(slug)
-        await api.updateSettings(slug, op.settings, project.revision)
-        break
+      case 'deleteLink': {
+        try {
+          await this.retrying(async () => {
+            const link = (await this.mirrored()).links.find(item => item.id === op.linkId)
+            if (link) await api.deleteLink(link.id, link.etag)
+          }, async () => { const fresh = await api.getLink(op.linkId); await changeProject(this.context, p => upsert(p.links, fresh)) })
+        } catch (ex) { if (!isNotFound(ex)) throw ex }
+        await changeProject(this.context, p => { p.links = p.links.filter(link => link.id !== op.linkId) })
+        return
+      }
+      case 'linkNote': {
+        const link = await this.retrying(async () => {
+          const current = (await this.mirrored()).links.find(item => item.id === op.linkId)
+          if (!current) throw new ApiError(404, 'The link no longer exists.')
+          return api.updateLinkNote(current.id, op.note, current.etag)
+        }, async () => { const fresh = await api.getLink(op.linkId); await changeProject(this.context, p => upsert(p.links, fresh)) })
+        await changeProject(this.context, p => upsert(p.links, link))
+        return
       }
     }
   }
 
+  /** Makes the project on the server and gives the folders made on this device the IDs of the server's folders with the same path. */
+  private async createProject(op: Extract<LocalOp, { type: 'createProject' }>) {
+    const { api, mirror } = this.context
+    const local = await this.mirrored()
+    const localProjectId = this.context.projectId
+    const created = await api.createProject(op.title, op.settings.wordGoal, op.templateName).catch(ex => {
+      if (op.templateName && isNotFound(ex)) return api.createProject(op.title, op.settings.wordGoal)
+      throw ex
+    })
+    let project = created
+    if (project.title !== op.settings.title || project.defaultSceneWordGoal !== op.settings.defaultSceneWordGoal)
+      project = await api.updateProjectSettings(created.id, op.settings, created.etag)
+    const [folders, links] = await Promise.all([api.listFolders(created.id), api.listLinks(created.id)])
+    const localView = overlay(local, [], [])
+    const serverView = { project, folders, documents: [], links }
+    const byPath = new Map(folders.map(folder => [folderPath(serverView, folder.id), folder.id]))
+    const ids: Record<string, string> = { [localProjectId]: created.id, [op.rootFolderId]: created.rootFolderId }
+    for (const folder of local.folders) {
+      const match = byPath.get(folderPath(localView, folder.id))
+      if (match) ids[folder.id] = match
+    }
+    await replaceIds(this.context, ids)
+    await mirror.putProject({ projectId: created.id, project, folders, links, syncedAt: new Date().toISOString() })
+    const known = await mirror.listProjects()
+    await mirror.putProjects([...known.filter(item => item.id !== localProjectId && item.id !== created.id), project])
+  }
+
   private async giveUp(pending: PendingOp, ex: unknown) {
-    const { mirror, listener } = this.context
-    const slug = this.context.slug
+    const { mirror, listener, projectId } = this.context
     await mirror.deleteOp(pending.seq!)
     const message = ex instanceof Error ? ex.message : 'The server refused a change.'
     const op = pending.op
-    if (op.type === 'create') {
-      const edit = await mirror.getPending(slug, op.id)
-      const kept: PendingEdit = { slug, id: op.id, content: edit?.content ?? op.content, baseRevision: '', updated: new Date().toISOString(), conflict: 'deleted' }
+    if (op.type === 'createDocument') {
+      const edit = await mirror.getPending(projectId, op.localId)
+      const kept: PendingEdit = { projectId, id: op.localId, text: edit?.text ?? op.text, baseEtag: '', updated: new Date().toISOString(), conflict: 'deleted' }
       await mirror.putPending(kept)
-      const doc = await mirror.getDocument(slug, op.id)
+      const doc = await mirror.getDocument(projectId, op.localId)
       if (doc) listener.onDocument(doc, kept)
-      listener.onProblem(`"${op.title}" could not be created on the server: ${message}`)
+      listener.onProblem(`"${op.title}" could not be made on the server: ${message}`)
     } else if (op.type === 'createProject') {
-      listener.onProblem(`The project "${op.title}" could not be created on the server: ${message}`)
+      listener.onProblem(`The project "${op.title}" could not be made on the server: ${message}`)
     } else {
       listener.onProblem(message)
     }
+    await publishView(this.context)
   }
 }
