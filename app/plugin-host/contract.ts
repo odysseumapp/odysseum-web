@@ -2,7 +2,7 @@
  * The contract between the web UI and a plugin's client modules. Third-party plugins build against these types; change
  * them only in a way that keeps old plugins working, and raise `apiVersion` when that is not possible.
  *
- * The plugin's C# code registers each view (`AddView`) with a label, an icon and a client entry; `GET /api/plugins`
+ * The plugin's C# code has one `IViewDefinition` class per view, with a label, an icon and a client entry; `GET /api/plugins`
  * gives them to the host. The client entry is an ES module whose default export is the view's component, with
  * `ViewProps` as props and `ViewEmits` as events; it registers nothing. The host imports it when the view is first
  * selected. Before the import, the host sets the API object as `globalThis.__odysseum`, so that the plugin's build can
