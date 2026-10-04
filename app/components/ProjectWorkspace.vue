@@ -17,6 +17,8 @@ const views = computed(() => [{ name: WRITE_VIEW, label: 'Write' }, ...registry.
 const pluginView = computed(() => registry.find(view.value))
 const known = (name: string | null | undefined): name is string => name === WRITE_VIEW || !!registry.find(name)
 const tabs = computed(() => views.value.map(item => ({ label: item.label, value: item.name, icon: item.name === WRITE_VIEW ? 'i-lucide-file-text' : undefined })))
+/** A plugin's SVG icon, painted in the text color so that it follows the theme. */
+const iconMask = (url: string) => ({ mask: `url(${JSON.stringify(url)}) center / contain no-repeat` })
 const viewSettings = computed<ViewSettings>(() => currentFolder.value?.views[view.value] ?? {})
 const isRoot = computed(() => !!currentFolder.value && !currentFolder.value.parentFolderId)
 const protectedFolder = computed(() => !!project.value && !!currentFolder.value && isDefaultFolder(project.value, currentFolder.value) && !allowDeletingDefaultFolders.value)
@@ -171,7 +173,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', shortcut))
         <div v-if="!focus" class="flex flex-wrap items-center justify-between gap-2">
           <UButton color="neutral" variant="outline" icon="i-lucide-panel-left" class="md:hidden" @click="mobileSidebar = true">Documents</UButton>
           <UTabs v-model="view" :items="tabs" :content="false" class="max-w-full">
-            <template #leading="{ item }"><UIcon v-if="item.icon" :name="item.icon" class="size-4 shrink-0" /><component :is="registry.find(item.value)?.icon" v-else class="size-4 shrink-0" aria-hidden="true" /></template>
+            <template #leading="{ item }"><UIcon v-if="item.icon" :name="item.icon" class="size-4 shrink-0" /><span v-else-if="registry.find(item.value)?.icon" class="size-4 shrink-0 bg-current" :style="iconMask(registry.find(item.value)!.icon!)" aria-hidden="true" /></template>
           </UTabs>
           <UButton color="neutral" :variant="currentFolder?.pinnedView === view ? 'soft' : 'ghost'" icon="i-lucide-pin" :aria-pressed="currentFolder?.pinnedView === view" :aria-label="currentFolder?.pinnedView === view ? 'Unpin view' : 'Pin view for this folder'" @click="pin" />
         </div>

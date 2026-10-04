@@ -1,17 +1,19 @@
 /**
- * The contract between the web UI and a plugin's client module. Third-party plugins build against these types; change
+ * The contract between the web UI and a plugin's client modules. Third-party plugins build against these types; change
  * them only in a way that keeps old plugins working, and raise `apiVersion` when that is not possible.
  *
- * A plugin's client module is an ES module whose default export is `register`. The host imports it after it reads
- * `GET /api/plugins`. Before the import, the host sets the API object as `globalThis.__odysseum`, so that the plugin's
- * build can resolve `import ... from 'vue'` to the host's Vue (see the views plugin's Vite config).
+ * The plugin's C# code registers each view (`AddView`) with a label, an icon and a client entry; `GET /api/plugins`
+ * gives them to the host. The client entry is an ES module whose default export is the view's component, with
+ * `ViewProps` as props and `ViewEmits` as events; it registers nothing. The host imports it when the view is first
+ * selected. Before the import, the host sets the API object as `globalThis.__odysseum`, so that the plugin's build can
+ * resolve `import ... from 'vue'` to the host's Vue (see the views plugin's Vite config).
  */
 import type { Component } from 'vue'
 import type { DocumentDetails, DocumentSummary, Folder, ProjectSnapshot, ViewSettings } from '../models'
 
 export type { DocumentDetails, DocumentKind, DocumentStatus, DocumentSummary, Folder, Link, ProjectInfo, ProjectSnapshot, ViewSettings } from '../models'
 
-export const PLUGIN_API_VERSION = 1
+export const PLUGIN_API_VERSION = 2
 
 /** One child of a folder, in the folder's order. A folder's own document is never one of them. */
 export type ViewItem =
@@ -47,15 +49,6 @@ export interface ViewEmits {
   createDocument: [folderId: string]
 }
 
-export interface ViewRegistration {
-  /** Lowercase letters, digits, '.', '-' and '_', starting with a letter or digit, at most 64 characters. 'write' is the editor's. */
-  name: string
-  label: string
-  /** A component that draws the icon, e.g. an SVG the plugin ships. */
-  icon: Component
-  component: Component
-}
-
 /**
  * Components the host shares, so that plugin views look like the rest of the app and follow its theme. Plugin templates
  * get them from `odysseum.ui`, for example `const { Button } = odysseum.ui` in `setup`.
@@ -81,7 +74,7 @@ export interface OdysseumPluginApi {
   /** The host's Vue. Plugins must not bundle their own. */
   readonly vue: typeof import('vue')
   readonly ui: ComponentKit
-  registerView(view: ViewRegistration): void
 }
 
-export type PluginRegister = (odysseum: OdysseumPluginApi) => void | Promise<void>
+/** What a view's client entry exports. */
+export interface ViewModule { default: Component }

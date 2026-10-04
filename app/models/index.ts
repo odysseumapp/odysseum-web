@@ -39,7 +39,10 @@ export interface ServerSearchResult { documentId: string; title: string; excerpt
 export interface SearchResult { document: DocumentSummary; excerpt: string }
 
 export type PluginStatus = 'enabled' | 'disabled' | 'failed'
-export interface PluginInfo { id: string; name: string; version: string; status: PluginStatus; error?: string; clientEntry: string | null }
+/** A view a plugin adds. `clientEntry` is the URL of the module whose default export is the view's component; `icon` is the URL of an SVG file. */
+export interface PluginViewInfo { name: string; label: string; clientEntry: string; icon: string | null }
+/** `views` is empty when the plugin is not enabled. A plugin list saved by an older version has no `views`. */
+export interface PluginInfo { id: string; name: string; version: string; status: PluginStatus; error?: string; views: PluginViewInfo[] }
 
 export type ItemType = 'project' | 'folder' | 'document' | 'link'
 export type ChangeKind = 'added' | 'updated' | 'moved' | 'removed'
