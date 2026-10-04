@@ -35,9 +35,7 @@ if (!existsSync(path.join(serverRoot, 'plugins/Odysseum.Plugins.Views/plugin.jso
 export default defineConfig({
   plugins: [hostVue(), vue(), tailwindcss(), icons({ compiler: 'vue3' })],
   define: { 'process.env.NODE_ENV': JSON.stringify('production') },
-  build: {
-    outDir,
-    emptyOutDir: true,
-    lib: { entry: 'src/index.ts', formats: ['es'], fileName: () => 'index.js', cssFileName: 'index' },
-  },
+  // build.mjs builds each view's entry on its own, so that each JS file has all its code and the host can cache it for
+  // offline use by its URL.
+  build: { outDir },
 })

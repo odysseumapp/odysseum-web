@@ -1,6 +1,9 @@
 /**
- * The types of Odysseum's client plugin API, version 1. This is a copy of `app/plugin-host/contract.ts`
+ * The types of Odysseum's client plugin API, version 2. This is a copy of `app/plugin-host/contract.ts`
  * with the models it uses; a third-party plugin can copy this file as it is.
+ *
+ * A view's client entry (named in the plugin's C# `AddView`) is an ES module whose default export is the view's Vue
+ * component, with `ViewProps` as props and `ViewEmits` as events. The module registers nothing.
  */
 import type { Component } from 'vue'
 
@@ -50,8 +53,6 @@ export interface ViewEmits {
   createDocument: [folderId: string]
 }
 
-export interface ViewRegistration { name: string; label: string; icon: Component; component: Component }
-
 export interface ComponentKit {
   Button: Component
   Icon: Component
@@ -62,8 +63,7 @@ export interface ComponentKit {
 }
 
 export interface OdysseumPluginApi {
-  readonly apiVersion: 1
+  readonly apiVersion: 2
   readonly vue: typeof import('vue')
   readonly ui: ComponentKit
-  registerView(view: ViewRegistration): void
 }

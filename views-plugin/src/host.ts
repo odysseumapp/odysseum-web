@@ -1,11 +1,12 @@
 import type { ComponentKit, OdysseumPluginApi } from './odysseum'
 
-let api: OdysseumPluginApi | undefined
+declare global {
+  var __odysseum: OdysseumPluginApi | undefined
+}
 
-export function useHost(value: OdysseumPluginApi) { api = value }
-
-/** The host's shared components. Views mount after `register`, so the API is always there when they ask. */
+/** The host's shared components. The host sets its API before it imports a view, so it is always there. */
 export function ui(): ComponentKit {
-  if (!api) throw new Error('The views plugin is not registered.')
+  const api = globalThis.__odysseum
+  if (!api) throw new Error('The Odysseum host API is missing.')
   return api.ui
 }

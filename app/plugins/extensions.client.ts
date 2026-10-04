@@ -4,7 +4,7 @@ import { componentKit } from '~/plugin-host/kit'
 import { PluginLoader } from '~/plugin-host/PluginLoader'
 import { ViewRegistry } from '~/plugin-host/ViewRegistry'
 
-/** Loads the client modules of the server's enabled plugins once the workspace is unlocked. */
+/** Adds the views of the server's enabled plugins once the workspace is unlocked. */
 export default defineNuxtPlugin({
   name: 'odysseum-extensions',
   dependsOn: ['odysseum-workspace'],

@@ -3,13 +3,13 @@
   "private": true,
   "type": "module",
   "license": "AGPL-3.0-only",
-  "description": "The board, outline and grid views: the client of the server's views plugin. Builds into odysseum-server/plugins/Odysseum.Plugins.Views/wwwroot.",
+  "description": "The board, outline and grid views: the client files of the server's views plugin, one module per view. Builds into odysseum-server/plugins/Odysseum.Plugins.Views/wwwroot.",
   "engines": {
     "node": "^22.19.0 || ^24.11.0 || >=26.0.0"
   },
   "scripts": {
     "typecheck": "vue-tsc --noEmit",
-    "build": "vue-tsc --noEmit && vite build"
+    "build": "vue-tsc --noEmit && node build.mjs"
   },
   "devDependencies": {
     "@iconify-json/lucide": "^1.2.0",
