@@ -1,9 +1,9 @@
-import type { Project } from '../models'
-import { isScene } from './FileNames'
+import type { ProjectSnapshot } from '../models'
+import { allDocuments, isScene } from './FolderStructure'
 
-export function exportMarkdown(project: Project, content: (id: string) => string) {
-  const scenes = project.documents.filter(doc => isScene(doc.path))
-  return `# ${project.settings.title}\n\n` + scenes.map(doc => `## ${doc.title}\n\n${content(doc.id).trim()}`).join('\n\n---\n\n') + '\n'
+export function exportMarkdown(project: ProjectSnapshot, text: (id: string) => string) {
+  const scenes = allDocuments(project).filter(isScene)
+  return `# ${project.project.title}\n\n` + scenes.map(doc => `## ${doc.title}\n\n${text(doc.id).trim()}`).join('\n\n---\n\n') + '\n'
 }
 
 export function downloadText(name: string, text: string, type = 'text/markdown;charset=utf-8') {

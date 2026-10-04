@@ -21,8 +21,8 @@ const create = () => run(async () => { await workspace.createProject(title.value
     <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-label="Projects">
       <UCard v-for="item in projects" :key="item.id">
         <h2 class="font-semibold mb-2">{{ item.title }}</h2>
-        <p class="text-sm text-muted mb-4">{{ item.slug }}</p>
-        <UButton :to="`/p/${encodeURIComponent(item.slug)}`" variant="soft" trailing-icon="i-lucide-arrow-right">Open project</UButton>
+        <p class="text-sm text-muted mb-4">{{ item.name }}</p>
+        <UButton :to="`/p/${encodeURIComponent(item.id)}`" variant="soft" trailing-icon="i-lucide-arrow-right">Open project</UButton>
       </UCard>
     </div>
     <UCard class="max-w-lg">

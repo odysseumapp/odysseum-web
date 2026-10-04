@@ -1,14 +1,30 @@
 <script setup lang="ts">
-import type { DocumentSummary, MetadataFields } from '~/models'
-import { documentChoices, kindIcons, kindLabels, kindOrder, linkedDocuments } from '~/services/FolderStructure'
-defineProps<{ fields: MetadataFields; dirty: boolean; saving: boolean }>()
+import type { DocumentDetails, DocumentSummary } from '~/models'
+import { documentChoices, kindIcons, kindLabels, kindOrder, linkBetween, linkedDocuments } from '~/services/FolderStructure'
+defineProps<{ fields: DocumentDetails; dirty: boolean; saving: boolean }>()
 const emit = defineEmits<{ edit: []; reset: []; save: []; open: [doc: DocumentSummary]; history: []; move: [] }>()
-const { project, active, selectedId } = useWorkspace()
+const workspace = useWorkspace()
+const { project, active, selectedId } = workspace
 const choices = computed(() => project.value ? documentChoices(project.value, selectedId.value).map(doc => ({ label: `${doc.title} · ${kindLabels[doc.kind]}`, value: doc.id, icon: kindIcons[doc.kind] })) : [])
-const linked = computed(() => {
-  const docs = project.value ? linkedDocuments(project.value, selectedId.value) : []
-  return kindOrder.map(kind => ({ kind, docs: docs.filter(doc => doc.kind === kind) })).filter(group => group.docs.length)
-})
+const linkedDocs = computed(() => project.value ? linkedDocuments(project.value, selectedId.value) : [])
+const linkedIds = computed(() => linkedDocs.value.map(doc => doc.id))
+const linked = computed(() => kindOrder.map(kind => ({ kind, docs: linkedDocs.value.filter(doc => doc.kind === kind) })).filter(group => group.docs.length))
+const { error, run } = useTask()
+
+/** Links are their own items on the server, so a change applies at once instead of with the other details. */
+function setLinks(next: unknown) {
+  if (!Array.isArray(next) || !project.value) return
+  const id = selectedId.value
+  const wanted = new Set(next.filter((value): value is string => typeof value === 'string'))
+  const current = new Set(linkedIds.value)
+  void run(async () => {
+    for (const other of wanted) if (!current.has(other)) await workspace.link(id, other)
+    for (const other of current) {
+      const link = !wanted.has(other) && project.value ? linkBetween(project.value, id, other) : undefined
+      if (link) await workspace.unlink(link.id)
+    }
+  })
+}
 </script>
 
 <template>
@@ -18,7 +34,8 @@ const linked = computed(() => {
     <UFormField label="Draft status"><USelect v-model="fields.status" :items="[{ label: 'First draft', value: 'draft' }, { label: 'In revision', value: 'revised' }, { label: 'Finished', value: 'done' }]" class="w-full" @update:model-value="emit('edit')" /></UFormField>
     <UFormField label="Synopsis"><UTextarea v-model="fields.synopsis" :rows="3" class="w-full" @update:model-value="emit('edit')" /></UFormField>
     <UFormField label="Notes"><UTextarea v-model="fields.notes" :rows="3" class="w-full" @update:model-value="emit('edit')" /></UFormField>
-    <UFormField label="Links" help="Characters, locations, threads, notes — anything this document is connected to."><USelect v-model="fields.links" :items="choices" multiple class="w-full" placeholder="Link documents" @update:model-value="emit('edit')" /></UFormField>
+    <UFormField label="Links" help="Characters, locations, threads, notes — anything this document is connected to. Changes apply at once."><USelect :model-value="linkedIds" :items="choices" multiple class="w-full" placeholder="Link documents" @update:model-value="setLinks" /></UFormField>
+    <UAlert v-if="error" color="error" :description="error" role="alert" />
     <UFormField v-if="active.document.kind === 'scene'" label="Scene word goal"><UInput v-model.number="fields.wordGoal" type="number" min="0" max="10000000" class="w-full" @update:model-value="emit('edit')" /></UFormField>
     <div class="space-y-2" aria-label="Linked documents">
       <h3 class="text-sm font-medium">Linked</h3>
@@ -30,7 +47,7 @@ const linked = computed(() => {
     </div>
     <div v-if="dirty" class="flex gap-2"><UButton type="submit" :loading="saving">Save details</UButton><UButton color="neutral" variant="outline" @click="emit('reset')">Reset</UButton></div>
     <USeparator />
-    <div class="flex flex-wrap gap-2"><UButton color="neutral" variant="outline" icon="i-lucide-history" @click="emit('history')">Version history</UButton><UButton color="neutral" variant="outline" @click="emit('move')">Move or rename file</UButton></div>
-    <p class="text-xs text-muted break-all">{{ active.document.path }}</p>
+    <div class="flex flex-wrap gap-2"><UButton color="neutral" variant="outline" icon="i-lucide-history" @click="emit('history')">Version history</UButton><UButton v-if="!active.document.isFolderDocument" color="neutral" variant="outline" @click="emit('move')">Rename or move</UButton></div>
+    <p class="text-xs text-muted break-all">{{ active.document.name }}</p>
   </form>
 </template>

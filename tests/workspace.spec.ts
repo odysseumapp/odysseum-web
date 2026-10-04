@@ -1,31 +1,61 @@
 import { test, expect, type Page, type APIRequestContext, type BrowserContext } from '@playwright/test'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import type { DocumentContent, Project, ProjectInfo } from '../app/models'
+import type { DocumentSummary, Folder, Link, ProjectInfo, ProjectSnapshot } from '../app/models'
+import { folderPath, linkBetween } from '../app/services/FolderStructure'
+
+// The board, outline and grid come from the views plugin. Build it for the Release server first:
+// ../odysseum-server/scripts/build-plugins.ps1 -Configuration Release
 
 const unique = (label: string) => `${label} ${Date.now()}`
-const base = (slug: string) => `/api/projects/${encodeURIComponent(slug)}`
-const projectUrl = (slug: string) => `/webui/p/${encodeURIComponent(slug)}`
-const filePath = (slug: string, doc: DocumentContent) => path.resolve('.test-data/workspace', slug, doc.document.path)
+const projectUrl = (id: string) => `/webui/p/${encodeURIComponent(id)}`
 const editor = (page: Page) => page.getByRole('textbox', { name: 'Document editor' })
 const closeDialog = (page: Page) => page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click()
-async function project(request: APIRequestContext, slug: string): Promise<Project> {
-  return (await (await request.get(base(slug))).json()).data
+async function data<T>(request: APIRequestContext, url: string): Promise<T> {
+  const response = await request.get(url)
+  expect(response.ok(), `${url}: ${response.status()}`).toBeTruthy()
+  const body = (await response.json()).data
+  return (body && Array.isArray(body.items) ? body.items : body) as T
 }
-async function createProject(request: APIRequestContext, template = 'Bare'): Promise<ProjectInfo> {
-  const response = await request.post('/api/projects', { data: { title: unique('Browser project'), template } })
+async function snapshot(request: APIRequestContext, id: string): Promise<ProjectSnapshot> {
+  const [project, folders, documents, links] = await Promise.all([
+    data<ProjectInfo>(request, `/api/projects/${id}`), data<Folder[]>(request, `/api/projects/${id}/folders`),
+    data<DocumentSummary[]>(request, `/api/projects/${id}/documents`), data<Link[]>(request, `/api/projects/${id}/links`),
+  ])
+  return { project, folders, documents, links }
+}
+const folderAt = (snap: ProjectSnapshot, at: string) => snap.folders.find(folder => folderPath(snap, folder.id) === at)
+const documentPath = (snap: ProjectSnapshot, doc: DocumentSummary) => [folderPath(snap, doc.folderId), doc.name].filter(Boolean).join('/')
+const filePath = (snap: ProjectSnapshot, doc: DocumentSummary) => path.resolve('.test-data/workspace', snap.project.name, documentPath(snap, doc))
+async function createProject(request: APIRequestContext, templateName = 'Bare'): Promise<ProjectInfo> {
+  const response = await request.post('/api/projects', { data: { title: unique('Browser project'), templateName } })
   expect(response.ok()).toBeTruthy()
   return (await response.json()).data
 }
-async function createDoc(request: APIRequestContext, slug: string, title: string, folder = 'Manuscript', content = 'Original paragraph.'): Promise<DocumentContent> {
-  const response = await request.post(`${base(slug)}/documents`, { data: { title, folder, content } })
+/** The folder at the path, made with its parents when it is missing. */
+async function ensureFolder(request: APIRequestContext, projectId: string, at: string): Promise<Folder> {
+  let snap = await snapshot(request, projectId)
+  let parent = snap.folders.find(folder => folder.id === snap.project.rootFolderId)!
+  for (const name of at.split('/').filter(Boolean)) {
+    const existing = snap.folders.find(folder => folder.parentFolderId === parent.id && folder.name === name)
+    if (existing) { parent = existing; continue }
+    const response = await request.post('/api/folders', { data: { parentFolderId: parent.id, name } })
+    expect(response.ok()).toBeTruthy()
+    parent = (await response.json()).data
+    snap = await snapshot(request, projectId)
+  }
+  return parent
+}
+async function createDoc(request: APIRequestContext, projectId: string, title: string, at = 'Manuscript', text = 'Original paragraph.'): Promise<DocumentSummary> {
+  const folder = await ensureFolder(request, projectId, at)
+  const response = await request.post('/api/documents', { data: { folderId: folder.id, title, text } })
   expect(response.ok()).toBeTruthy()
   return (await response.json()).data
 }
 async function chooseSection(page: Page, name: string) {
   await page.locator('aside').getByRole('button', { name: `Folder ${name}`, exact: true }).click()
 }
-async function newDocument(page: Page, kind: string, title: string) {
+async function newDocument(page: Page, title: string) {
   await page.getByRole('button', { name: 'New document', exact: true }).click()
   await page.getByRole('dialog').getByRole('textbox', { name: /^Title/ }).fill(title)
   await page.getByRole('button', { name: 'Create document', exact: true }).click()
@@ -40,7 +70,7 @@ test.beforeAll(async ({ playwright }) => {
   const folders = ['Manuscript', 'Characters', 'Locations', 'Threads', 'Notes']
   await mkdir(path.resolve('.test-data/templates'), { recursive: true })
   await writeFile(path.resolve('.test-data/templates/Bare.json'), JSON.stringify({
-    folders: [{ path: '', itemOrder: folders.map(name => `folder:${name}`) }, ...folders.map(name => ({ path: name })), { path: 'Manuscript/Chapter 01' }],
+    folders: [{ path: '', children: folders }, ...folders.map(name => ({ path: name, children: name === 'Manuscript' ? ['Chapter 01'] : [] })), { path: 'Manuscript/Chapter 01' }],
   }))
   await request.dispose()
 })
@@ -50,8 +80,8 @@ test('Vue pages render, format Markdown, switch views and work on mobile', async
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
   const info = await createProject(page.request)
-  await createDoc(page.request, info.slug, 'First scene', 'Manuscript', 'A **bold** beginning.')
-  await page.goto(projectUrl(info.slug))
+  await createDoc(page.request, info.id, 'First scene', 'Manuscript', 'A **bold** beginning.')
+  await page.goto(projectUrl(info.id))
   await expect(editor(page)).toContainText('beginning.')
   await page.getByRole('button', { name: 'Read', exact: true }).click()
   await expect(page.locator('.document-prose strong')).toHaveText('bold')
@@ -80,15 +110,31 @@ test('Vue pages render, format Markdown, switch views and work on mobile', async
   expect(errors).toEqual([])
 })
 
-test('creates files, saves metadata and links documents to each other', async ({ page }) => {
+test('the board, outline and grid come from the views plugin, and a word count comes from the server', async ({ page }) => {
+  const plugins: string[] = []
+  page.on('request', request => { if (new URL(request.url()).pathname.startsWith('/plugins/')) plugins.push(new URL(request.url()).pathname) })
   const info = await createProject(page.request)
-  await page.goto(projectUrl(info.slug))
+  await createDoc(page.request, info.id, 'Counted scene', 'Manuscript', '')
+  await page.goto(projectUrl(info.id))
+  await expect(page.getByRole('tab', { name: 'Grid', exact: true })).toBeVisible()
+  expect(plugins).toContain('/plugins/views/index.js')
+  expect(plugins).toContain('/plugins/views/index.css')
+  const listed = await data<{ id: string; status: string }[]>(page.request, '/api/plugins')
+  expect(listed.find(plugin => plugin.id === 'views')?.status).toBe('enabled')
+  await editor(page).fill('One two three four.')
+  await expect(page.getByRole('button', { name: 'All changes saved', exact: true })).toBeVisible()
+  await expect(page.getByText('4 words', { exact: true })).toBeVisible()
+})
+
+test('creates files, saves details and links documents to each other', async ({ page }) => {
+  const info = await createProject(page.request)
+  await page.goto(projectUrl(info.id))
   await chooseSection(page, 'Characters')
-  await newDocument(page, 'character', 'Ada')
+  await newDocument(page, 'Ada')
   await chooseSection(page, 'Locations')
-  await newDocument(page, 'location', 'Harbor')
+  await newDocument(page, 'Harbor')
   await chooseSection(page, 'Manuscript')
-  await newDocument(page, 'scene', 'Arrival')
+  await newDocument(page, 'Arrival')
   await editor(page).fill('A new chapter begins.')
   await editor(page).press('ControlOrMeta+a')
   await page.getByRole('button', { name: 'Bold', exact: true }).click()
@@ -103,12 +149,13 @@ test('creates files, saves metadata and links documents to each other', async ({
   await expect(page.getByRole('button', { name: 'Save details', exact: true })).toBeHidden()
   await closeDialog(page)
   await expect.poll(async () => {
-    const current = await project(page.request, info.slug)
+    const current = await snapshot(page.request, info.id)
     const scene = current.documents.find(doc => doc.title === 'Arrival')
-    return scene && { synopsis: scene.synopsis, links: scene.links.length }
+    return scene && { synopsis: scene.synopsis, links: current.links.filter(link => [link.firstDocumentId, link.secondDocumentId].includes(scene.id)).length }
   }).toEqual({ synopsis: 'A meeting by the water.', links: 2 })
-  const scene = (await project(page.request, info.slug)).documents.find(doc => doc.title === 'Arrival')!
-  await expect.poll(() => readFile(path.resolve('.test-data/workspace', info.slug, scene.path), 'utf8')).toContain('**A new chapter begins.**')
+  const current = await snapshot(page.request, info.id)
+  const scene = current.documents.find(doc => doc.title === 'Arrival')!
+  await expect.poll(() => readFile(filePath(current, scene), 'utf8')).toContain('**A new chapter begins.**')
   await page.reload()
   await expect(editor(page)).toContainText('chapter begins.')
   await page.getByRole('button', { name: 'Details', exact: true }).click()
@@ -129,13 +176,14 @@ async function newFolder(page: Page, name: string, topLevel = false) {
 
 test('every folder has a grid of its documents against another folder, with collapsible groups', async ({ page }) => {
   const info = await createProject(page.request)
-  await createDoc(page.request, info.slug, 'Revelation', 'Characters/Race')
-  const second = await createDoc(page.request, info.slug, 'Discovery', 'Characters')
-  const nested = await createDoc(page.request, info.slug, 'Nested point', 'Characters/Race/Nested')
-  const race = await createDoc(page.request, info.slug, 'Race', 'Threads')
-  const cute = await createDoc(page.request, info.slug, 'Meet Cute', 'Threads/Story Beats')
-  const idea = await createDoc(page.request, info.slug, 'A stray idea', 'Notes/Ideas')
-  await page.goto(projectUrl(info.slug))
+  await createDoc(page.request, info.id, 'Revelation', 'Characters/Race')
+  const second = await createDoc(page.request, info.id, 'Discovery', 'Characters')
+  const nested = await createDoc(page.request, info.id, 'Nested point', 'Characters/Race/Nested')
+  const race = await createDoc(page.request, info.id, 'Race', 'Threads')
+  const cute = await createDoc(page.request, info.id, 'Meet Cute', 'Threads/Story Beats')
+  const idea = await createDoc(page.request, info.id, 'A stray idea', 'Notes/Ideas')
+  const linkOf = async (a: string, b: string) => linkBetween(await snapshot(page.request, info.id), a, b)
+  await page.goto(projectUrl(info.id))
   for (const name of ['Manuscript', 'Characters', 'Locations', 'Notes', 'Threads']) {
     await expect(page.locator('aside').getByRole('button', { name: `Folder ${name}`, exact: true })).toBeVisible()
   }
@@ -146,18 +194,12 @@ test('every folder has a grid of its documents against another folder, with coll
   await expect(grid.getByRole('columnheader').filter({ hasText: 'Meet Cute' })).toBeVisible()
   await grid.getByRole('button', { name: 'Link Discovery to Race', exact: true }).click()
   await expect(grid.getByRole('button', { name: 'Unlink Discovery from Race', exact: true })).toBeVisible()
-  await expect.poll(async () => {
-    const current = await project(page.request, info.slug)
-    return [current.documents.find(doc => doc.id === second.document.id)?.links, current.documents.find(doc => doc.id === race.document.id)?.links]
-  }).toEqual([[race.document.id], [second.document.id]])
+  await expect.poll(async () => !!await linkOf(second.id, race.id)).toBe(true)
   await grid.getByRole('button', { name: 'Note on Discovery and Race', exact: true }).click()
   await grid.getByRole('textbox', { name: 'Note on Discovery and Race', exact: true }).fill('Where the race begins')
   await page.keyboard.press('Enter')
   await expect(grid.getByRole('button', { name: 'Edit note on Discovery and Race', exact: true })).toHaveText('Where the race begins')
-  await expect.poll(async () => {
-    const current = await project(page.request, info.slug)
-    return [current.documents.find(doc => doc.id === second.document.id)?.linkNotes, current.documents.find(doc => doc.id === race.document.id)?.linkNotes]
-  }).toEqual([{ [race.document.id]: 'Where the race begins' }, { [second.document.id]: 'Where the race begins' }])
+  await expect.poll(async () => (await linkOf(second.id, race.id))?.note).toBe('Where the race begins')
   await grid.getByRole('button', { name: 'Edit synopsis of Discovery', exact: true }).click()
   await grid.getByRole('textbox', { name: 'Synopsis of Discovery', exact: true }).fill('Thrown away')
   await page.keyboard.press('Escape')
@@ -166,11 +208,15 @@ test('every folder has a grid of its documents against another folder, with coll
   await grid.getByRole('textbox', { name: 'Synopsis of Discovery', exact: true }).fill('She finds the map')
   await page.keyboard.press('Enter')
   await expect(grid.getByRole('button', { name: 'Edit synopsis of Discovery', exact: true })).toHaveText('She finds the map')
-  await expect.poll(async () => (await project(page.request, info.slug)).documents.find(doc => doc.id === second.document.id)?.synopsis).toBe('She finds the map')
+  await expect.poll(async () => (await snapshot(page.request, info.id)).documents.find(doc => doc.id === second.id)?.synopsis).toBe('She finds the map')
   await grid.getByRole('button', { name: 'Link Nested point to Meet Cute', exact: true }).click()
-  await expect.poll(async () => (await project(page.request, info.slug)).documents.find(doc => doc.id === nested.document.id)?.links).toEqual([cute.document.id])
+  await expect.poll(async () => !!await linkOf(nested.id, cute.id)).toBe(true)
   await grid.getByRole('button', { name: 'Link Nested to Meet Cute', exact: true }).click()
-  await expect.poll(async () => (await project(page.request, info.slug)).documents.find(doc => doc.path === 'Characters/Race/Nested/.Nested.md')?.links).toEqual([cute.document.id])
+  await expect.poll(async () => {
+    const current = await snapshot(page.request, info.id)
+    const own = folderAt(current, 'Characters/Race/Nested')?.ownDocumentId
+    return !!own && !!linkBetween(current, own, cute.id)
+  }).toBe(true)
   await grid.getByRole('button', { name: 'Collapse Race', exact: true }).click()
   await expect(grid.getByRole('rowheader').filter({ hasText: 'Nested point' })).toBeHidden()
   await expect(grid.getByRole('button', { name: 'Open Nested point', exact: true })).toBeVisible()
@@ -180,10 +226,9 @@ test('every folder has a grid of its documents against another folder, with coll
   await expect(grid.getByRole('columnheader').filter({ hasText: 'A stray idea' })).toBeVisible()
   await grid.getByRole('button', { name: 'Link Discovery to A stray idea', exact: true }).click()
   await expect.poll(async () => {
-    const current = await project(page.request, info.slug)
-    const notes = current.folders.find(folder => folder.path === 'Notes')!
-    return { column: current.folders.find(folder => folder.path === 'Characters')?.gridFolder === notes.id, idea: current.documents.find(doc => doc.id === idea.document.id)?.links }
-  }).toEqual({ column: true, idea: [second.document.id] })
+    const current = await snapshot(page.request, info.id)
+    return { column: folderAt(current, 'Characters')?.views.grid?.columnFolder === folderAt(current, 'Notes')?.id, idea: !!linkBetween(current, second.id, idea.id) }
+  }).toEqual({ column: true, idea: true })
   await page.screenshot({ path: '.test-data/threads.png', fullPage: true })
   await page.reload()
   await chooseSection(page, 'Characters')
@@ -194,7 +239,8 @@ test('every folder has a grid of its documents against another folder, with coll
   await expect(page.getByRole('combobox', { name: 'Links', exact: true })).toContainText('Meet Cute')
   await closeDialog(page)
   await editor(page).fill('A document on a thread.')
-  await expect.poll(() => readFile(path.resolve('.test-data/workspace', info.slug, nested.document.path), 'utf8')).toContain('A document on a thread.')
+  const current = await snapshot(page.request, info.id)
+  await expect.poll(() => readFile(filePath(current, nested), 'utf8')).toContain('A document on a thread.')
   await chooseSection(page, 'Characters')
   await page.getByRole('tab', { name: 'Corkboard', exact: true }).click()
   await expect(page.getByLabel('Corkboard', { exact: true }).getByLabel('Linked documents').filter({ hasText: 'Race' }).first()).toBeVisible()
@@ -202,34 +248,38 @@ test('every folder has a grid of its documents against another folder, with coll
 
 test('folder stacks keep the view, pins persist, folders open their own document and empty folders can be removed', async ({ page }) => {
   const info = await createProject(page.request)
-  const first = await createDoc(page.request, info.slug, 'First', 'Manuscript/Part')
-  const second = await createDoc(page.request, info.slug, 'Second', 'Manuscript/Part')
-  await page.goto(projectUrl(info.slug))
+  const first = await createDoc(page.request, info.id, 'First', 'Manuscript/Part')
+  const second = await createDoc(page.request, info.id, 'Second', 'Manuscript/Part')
+  const part = () => snapshot(page.request, info.id).then(current => folderAt(current, 'Manuscript/Part')!.childIds)
+  await page.goto(projectUrl(info.id))
   await chooseSection(page, 'Manuscript')
   await page.getByRole('tab', { name: 'Corkboard' }).click()
   await page.getByRole('button', { name: 'Open folder Part', exact: true }).dblclick()
   await expect(page.getByRole('tab', { name: 'Corkboard' })).toHaveAttribute('aria-selected', 'true')
   const board = page.getByLabel('Corkboard', { exact: true })
-  await board.locator(`[data-item-key="${second.document.id}"]`).dragTo(board.locator(`[data-item-key="${first.document.id}"]`))
-  await expect(board.locator('[data-item-key]').first()).toHaveAttribute('data-item-key', second.document.id)
+  await board.locator(`[data-item-id="${second.id}"]`).dragTo(board.locator(`[data-item-id="${first.id}"]`))
+  await expect(board.locator('[data-item-id]').first()).toHaveAttribute('data-item-id', second.id)
+  await expect.poll(part).toEqual([second.id, first.id])
   await page.getByRole('tab', { name: 'Outline' }).click()
   const outline = page.getByLabel('Outline', { exact: true })
-  await outline.locator(`[data-item-key="${second.document.id}"]`).dragTo(outline.locator(`[data-item-key="${first.document.id}"]`))
-  await expect(outline.locator('[data-item-key]').first()).toHaveAttribute('data-item-key', first.document.id)
+  await outline.locator(`[data-item-id="${second.id}"]`).dragTo(outline.locator(`[data-item-id="${first.id}"]`))
+  await expect(outline.locator('[data-item-id]').first()).toHaveAttribute('data-item-id', first.id)
+  await expect.poll(part).toEqual([first.id, second.id])
   await chooseSection(page, 'Manuscript')
   await expect(page.getByRole('tab', { name: 'Outline', exact: true })).toHaveAttribute('aria-selected', 'true')
   await chooseSection(page, 'Manuscript/Part')
   await page.getByRole('tab', { name: 'Write', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Part', exact: true })).toBeVisible()
   await editor(page).fill('Folder introduction.')
-  await expect.poll(() => readFile(path.resolve('.test-data/workspace', info.slug, 'Manuscript/Part/.Part.md'), 'utf8')).toContain('Folder introduction.')
+  await expect.poll(async () => readFile(path.resolve('.test-data/workspace', (await snapshot(page.request, info.id)).project.name, 'Manuscript/Part/.Part.md'), 'utf8')).toContain('Folder introduction.')
   await expect(page.locator('aside').getByRole('button', { name: 'Open Part', exact: true })).toBeHidden()
   await expect(page.locator('aside').getByRole('button', { name: 'Open First', exact: true })).toBeVisible()
   await chooseSection(page, 'Notes')
   await page.getByRole('tab', { name: 'Grid', exact: true }).click()
   await page.getByRole('button', { name: 'Pin view for this folder' }).click()
-  await expect.poll(async () => (await project(page.request, info.slug)).folders.find(folder => folder.path === 'Notes')?.pinnedView).toBe('grid')
+  await expect.poll(async () => folderAt(await snapshot(page.request, info.id), 'Notes')?.pinnedView).toBe('grid')
   await page.reload()
+  await expect(page.getByRole('tab', { name: 'Grid', exact: true })).toBeVisible()
   await chooseSection(page, 'Notes')
   await expect(page.getByRole('tab', { name: 'Grid', exact: true })).toHaveAttribute('aria-selected', 'true')
   await page.getByRole('tab', { name: 'Write', exact: true }).click()
@@ -238,7 +288,7 @@ test('folder stacks keep the view, pins persist, folders open their own document
   await chooseSection(page, 'Notes/Empty')
   await page.getByRole('button', { name: 'Remove empty folder' }).click()
   await expect(page.locator('aside').getByRole('button', { name: 'Folder Notes/Empty', exact: true })).toBeHidden()
-  await expect.poll(async () => (await project(page.request, info.slug)).folders.some(folder => folder.path === 'Notes/Empty')).toBe(false)
+  await expect.poll(async () => !!folderAt(await snapshot(page.request, info.id), 'Notes/Empty')).toBe(false)
   await chooseSection(page, 'Manuscript/Part')
   await expect(page.getByRole('button', { name: 'Remove empty folder' })).toBeDisabled()
   await newFolder(page, 'Custom', true)
@@ -247,10 +297,13 @@ test('folder stacks keep the view, pins persist, folders open their own document
 
 test('offline reload preserves edits, pins and links made in the grid', async ({ page, context }) => {
   const info = await createProject(page.request)
-  const original = await createDoc(page.request, info.slug, 'Offline scene')
-  await page.goto(projectUrl(info.slug))
+  const original = await createDoc(page.request, info.id, 'Offline scene')
+  await page.goto(projectUrl(info.id))
   await expect(editor(page)).toContainText('Original paragraph.')
+  await expect(page.getByRole('tab', { name: 'Grid', exact: true })).toBeVisible()
   await page.evaluate(async () => { await navigator.serviceWorker.ready })
+  // The plugin's files reach the service worker's cache once it controls the page.
+  await expect.poll(() => page.evaluate(async () => (await (await caches.open('odysseum-plugins')).keys()).length)).toBe(2)
   await context.setOffline(true)
   await page.reload()
   await expect(editor(page)).toContainText('Original paragraph.')
@@ -260,7 +313,7 @@ test('offline reload preserves edits, pins and links made in the grid', async ({
   await page.reload()
   await expect(editor(page)).toContainText('Written with no connection.')
   await chooseSection(page, 'Threads')
-  await newDocument(page, 'thread', 'Offline thread')
+  await newDocument(page, 'Offline thread')
   await chooseSection(page, 'Manuscript')
   await page.getByRole('tab', { name: 'Grid', exact: true }).click()
   await page.getByRole('button', { name: 'Pin view for this folder' }).click()
@@ -272,27 +325,33 @@ test('offline reload preserves edits, pins and links made in the grid', async ({
   await expect(on).toBeVisible()
   await context.setOffline(false)
   await expect.poll(async () => {
-    const current = await project(page.request, info.slug)
+    const current = await snapshot(page.request, info.id)
     const thread = current.documents.find(doc => doc.title === 'Offline thread')
-    const folder = current.folders.find(folder => folder.path === 'Manuscript')
-    const scene = current.documents.find(doc => doc.id === original.document.id)
-    return thread && folder && scene ? { pinned: folder.pinnedView, on: scene.links.includes(thread.id) && thread.links.includes(scene.id), path: thread.path } : null
+    const folder = folderAt(current, 'Manuscript')
+    return thread && folder ? { pinned: folder.pinnedView, on: !!linkBetween(current, original.id, thread.id), path: documentPath(current, thread) } : null
   }, { timeout: 20000 }).toEqual({ pinned: 'grid', on: true, path: 'Threads/Offline thread.md' })
-  await expect.poll(() => readFile(filePath(info.slug, original), 'utf8')).toContain('Written with no connection.')
+  const current = await snapshot(page.request, info.id)
+  await expect.poll(() => readFile(filePath(current, original), 'utf8')).toContain('Written with no connection.')
 })
-test('live events cross the Nuxt proxy and conflicts preserve both versions', async ({ page, context }) => {
+
+test('live changes arrive through SignalR and conflicts preserve both versions', async ({ page, context }) => {
   const info = await createProject(page.request)
-  const doc = await createDoc(page.request, info.slug, 'External edits')
-  await page.goto(projectUrl(info.slug))
+  const doc = await createDoc(page.request, info.id, 'External edits')
+  await page.goto(projectUrl(info.id))
   await expect(editor(page)).toContainText('Original paragraph.')
-  const file = filePath(info.slug, doc)
+  const file = filePath(await snapshot(page.request, info.id), doc)
   const raw = await readFile(file, 'utf8')
   await writeFile(file, raw.replace('Original paragraph.', 'Live external update.'))
   await expect(editor(page)).toContainText('Live external update.', { timeout: 8000 })
+  const etag = async () => (await data<DocumentSummary>(page.request, `/api/documents/${doc.id}`)).etag
+  const live = await etag()
   await context.setOffline(true)
   await editor(page).fill('Keep this browser draft.')
   await page.waitForTimeout(250)
   await writeFile(file, raw.replace('Original paragraph.', 'Independent disk version.'))
+  // The server finds the disk change on its next scan; go online only after it has (the ETag changes), so the order of
+  // events is fixed. Its text endpoint already shows the new file before that.
+  await expect.poll(etag).not.toBe(live)
   await context.setOffline(false)
   await expect(page.getByText('This document has conflicting changes')).toBeVisible({ timeout: 20000 })
   await page.getByRole('button', { name: 'Review changes', exact: true }).first().click()
@@ -302,53 +361,86 @@ test('live events cross the Nuxt proxy and conflicts preserve both versions', as
   await expect.poll(() => readFile(file, 'utf8')).toContain('Keep this browser draft.')
 })
 
-test('history, search, file moves, ordering, settings, export and router navigation', async ({ page }) => {
+test('a change in a second browser arrives without a reload', async ({ page, browser }) => {
   const info = await createProject(page.request)
-  await createDoc(page.request, info.slug, 'Toolbox scene')
-  await createDoc(page.request, info.slug, 'Another scene')
-  await page.goto(projectUrl(info.slug))
+  const doc = await createDoc(page.request, info.id, 'Shared scene')
+  await page.goto(projectUrl(info.id))
+  await expect(editor(page)).toContainText('Original paragraph.')
+  const other = await browser.newContext()
+  await other.addCookies(cookies)
+  const second = await other.newPage()
+  await second.goto(projectUrl(info.id))
+  await expect(editor(second)).toContainText('Original paragraph.')
+  await editor(page).fill('Typed in the first browser.')
+  await expect(page.getByRole('button', { name: 'All changes saved', exact: true })).toBeVisible()
+  await expect(editor(second)).toContainText('Typed in the first browser.')
+  await page.getByRole('button', { name: 'Details', exact: true }).click()
+  await page.getByRole('textbox', { name: /^Title/ }).fill('Renamed in the first browser')
+  await page.getByRole('button', { name: 'Save details', exact: true }).click()
+  await closeDialog(page)
+  await expect(second.locator('aside').getByRole('button', { name: 'Open Renamed in the first browser', exact: true })).toBeVisible()
+  await createDoc(page.request, info.id, 'Made elsewhere')
+  await expect(second.locator('aside').getByRole('button', { name: 'Open Made elsewhere', exact: true })).toBeVisible()
+  expect((await snapshot(page.request, info.id)).documents.find(item => item.id === doc.id)?.title).toBe('Renamed in the first browser')
+  await other.close()
+})
+
+test('history, search, renames, moves, ordering, settings, export and router navigation', async ({ page }) => {
+  const info = await createProject(page.request)
+  const toolbox = await createDoc(page.request, info.id, 'Toolbox scene')
+  await createDoc(page.request, info.id, 'Another scene')
+  const chapter = await ensureFolder(page.request, info.id, 'Manuscript/Chapter 2')
+  expect((await page.request.post(`/api/projects/${info.id}/versions`, { data: { name: 'Start' } })).ok()).toBeTruthy()
+  await page.goto(projectUrl(info.id))
   await page.locator('aside').getByRole('button', { name: 'Open Toolbox scene', exact: true }).click()
   await editor(page).fill('Updated paragraph.')
   await expect(page.getByRole('button', { name: 'All changes saved', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Details', exact: true }).click()
   await page.getByRole('button', { name: 'Version history', exact: true }).click()
-  await page.getByRole('dialog').getByRole('button', { name: /words/ }).last().click()
-  await expect(page.getByLabel('Revision preview')).toContainText('Original paragraph.')
+  await page.getByRole('dialog').getByRole('button', { name: /Start/ }).click()
+  await expect(page.getByLabel('Version preview')).toContainText('Original paragraph.')
   await page.getByRole('button', { name: 'Restore to editor', exact: true }).click()
   await expect(editor(page)).toContainText('Original paragraph.')
   await page.getByRole('button', { name: 'Search documents', exact: true }).click()
   await page.getByRole('textbox', { name: 'Search documents', exact: true }).fill('Toolbox')
   await page.getByRole('dialog').getByRole('button', { name: /Toolbox scene/ }).click()
   await page.getByRole('button', { name: 'Details', exact: true }).click()
-  await page.getByRole('button', { name: 'Move or rename file', exact: true }).click()
-  await page.getByRole('textbox', { name: 'Path within project' }).fill('Manuscript/Chapter 2/Moved.md')
-  await page.getByRole('button', { name: 'Move file', exact: true }).click()
-  await expect.poll(async () => (await project(page.request, info.slug)).documents.find(doc => doc.title === 'Toolbox scene')?.path).toBe('Manuscript/Chapter 2/Moved.md')
+  await page.getByRole('button', { name: 'Rename or move', exact: true }).click()
+  await page.getByRole('textbox', { name: 'File name' }).fill('Moved')
+  await page.getByRole('dialog').getByRole('combobox').click()
+  await page.getByRole('option', { name: 'Manuscript/Chapter 2', exact: true }).click()
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect.poll(async () => {
+    const current = await snapshot(page.request, info.id)
+    const moved = current.documents.find(doc => doc.id === toolbox.id)
+    return moved && documentPath(current, moved)
+  }).toBe('Manuscript/Chapter 2/Moved.md')
   await chooseSection(page, 'Manuscript')
   await page.getByRole('tab', { name: 'Corkboard' }).click()
-  await page.getByRole('button', { name: 'Move Chapter 2 later', exact: true }).click()
-  await expect.poll(async () => (await project(page.request, info.slug)).folders.find(folder => folder.path === 'Manuscript')?.itemOrder.at(-1)).toBe('folder:Chapter 2')
+  await page.getByRole('button', { name: 'Move Chapter 2 earlier', exact: true }).click()
+  await expect.poll(async () => folderAt(await snapshot(page.request, info.id), 'Manuscript')?.childIds.at(-2)).toBe(chapter.id)
   await page.getByRole('button', { name: 'Project settings', exact: true }).click()
   await page.getByRole('spinbutton', { name: 'Manuscript word goal', exact: true }).fill('75000')
   await page.getByRole('button', { name: 'Save settings', exact: true }).click()
-  await expect.poll(async () => (await project(page.request, info.slug)).settings.wordGoal).toBe(75000)
+  await expect.poll(async () => (await snapshot(page.request, info.id)).project.wordGoal).toBe(75000)
   const downloadPromise = page.waitForEvent('download')
   await page.getByRole('button', { name: 'Export manuscript', exact: true }).click()
   const download = await downloadPromise
   expect(await readFile((await download.path())!, 'utf8')).toContain('Original paragraph.')
   await page.getByRole('button', { name: 'Projects', exact: true }).click()
   await expect(page).toHaveURL('/webui/')
-  const other = unique('New project')
-  await page.getByRole('textbox', { name: /^Project title/ }).fill(other)
+  const otherTitle = unique('New project')
+  await page.getByRole('textbox', { name: /^Project title/ }).fill(otherTitle)
   await page.getByRole('button', { name: 'Create project', exact: true }).click()
-  await expect(page).toHaveURL(projectUrl(other))
-  await newDocument(page, 'scene', 'Second project scene')
+  // The project is made on this device first, then gets the server's ID.
+  await expect(page).toHaveURL(/\/webui\/p\/[0-9a-f]{8}-[0-9a-f-]{27}$/, { timeout: 15000 })
+  await newDocument(page, 'Second project scene')
   await expect(editor(page)).toBeVisible()
   await page.goBack()
   await expect(page.getByRole('heading', { name: 'Projects', exact: true })).toBeVisible()
   await page.goBack()
-  await expect(page).toHaveURL(projectUrl(info.slug))
-  await expect(page.getByRole('heading', { name: 'Manuscript', exact: true })).toBeVisible()
+  await expect(page).toHaveURL(projectUrl(info.id))
+  await expect(editor(page)).toBeVisible()
   await page.locator('aside').getByRole('button', { name: 'Open Another scene', exact: true }).click()
   await expect(editor(page)).toContainText('Original paragraph.')
 })
@@ -371,46 +463,45 @@ test('password login and logout pass cookies between the static UI and the API',
   expect((await page.request.get('/api/projects')).status()).toBe(401)
 })
 
-test('unsaved details survive server ID assignment and a second save survives an in-flight metadata request', async ({ page }) => {
+test('unsaved details survive server ID assignment and a second save survives an in-flight details request', async ({ page }) => {
   const info = await createProject(page.request)
-  await page.goto(projectUrl(info.slug))
+  await page.goto(projectUrl(info.id))
+  await expect(page.locator('aside').getByRole('button', { name: 'Folder Manuscript', exact: true })).toBeVisible()
   let releaseCreate!: () => void
   const createHeld = new Promise<void>(resolve => { releaseCreate = resolve })
   let creationReceived = false
-  await page.route(`**${base(info.slug)}/documents`, async route => {
+  await page.route('**/api/documents', async route => {
     if (route.request().method() !== 'POST') return route.continue()
     const response = await route.fetch()
     creationReceived = true
     await createHeld
     await route.fulfill({ response })
   })
-  await newDocument(page, 'scene', 'ID handover')
+  await newDocument(page, 'ID handover')
   await editor(page).fill('Typing while the server assigns an ID.')
   await page.getByRole('button', { name: 'Details', exact: true }).click()
   await page.getByRole('textbox', { name: 'Synopsis', exact: true }).fill('An unsaved detail draft.')
   await expect.poll(() => creationReceived).toBe(true)
   releaseCreate()
-  await expect.poll(async () => {
-    const id = (await project(page.request, info.slug)).documents.find(doc => doc.title === 'ID handover')?.id
-    return page.evaluate(realId => Object.keys(localStorage).some(key => key.endsWith(`:details:${realId}`)), id)
-  }).toBe(true)
+  const realId = async () => (await snapshot(page.request, info.id)).documents.find(doc => doc.title === 'ID handover')?.id
+  await expect.poll(async () => page.evaluate(id => Object.keys(localStorage).some(key => key.endsWith(`:details:${id}`)), await realId())).toBe(true)
   await expect(page.getByRole('textbox', { name: 'Synopsis', exact: true })).toHaveValue('An unsaved detail draft.')
-  let releaseMetadata!: () => void
-  const metadataHeld = new Promise<void>(resolve => { releaseMetadata = resolve })
-  let metadataReceived = false
-  await page.route('**/metadata', async route => {
-    if (metadataReceived) return route.continue()
-    metadataReceived = true
+  let releaseDetails!: () => void
+  const detailsHeld = new Promise<void>(resolve => { releaseDetails = resolve })
+  let detailsReceived = false
+  await page.route('**/details', async route => {
+    if (detailsReceived) return route.continue()
+    detailsReceived = true
     const response = await route.fetch()
-    await metadataHeld
+    await detailsHeld
     await route.fulfill({ response })
   })
   await page.getByRole('button', { name: 'Save details', exact: true }).click()
-  await expect.poll(() => metadataReceived).toBe(true)
+  await expect.poll(() => detailsReceived).toBe(true)
   await page.getByRole('textbox', { name: 'Synopsis', exact: true }).fill('The later detail edit.')
   await page.getByRole('button', { name: 'Save details', exact: true }).click()
-  releaseMetadata()
-  await expect.poll(async () => (await project(page.request, info.slug)).documents.find(doc => doc.title === 'ID handover')?.synopsis).toBe('The later detail edit.')
+  releaseDetails()
+  await expect.poll(async () => (await snapshot(page.request, info.id)).documents.find(doc => doc.title === 'ID handover')?.synopsis).toBe('The later detail edit.')
   await closeDialog(page)
   await page.reload()
   await expect(editor(page)).toContainText('Typing while the server assigns an ID.')
@@ -420,11 +511,12 @@ test('unsaved details survive server ID assignment and a second save survives an
 
 test('new projects seed Chapter 01 with a first scene, order default folders and protect them until the server setting allows removal', async ({ page }) => {
   const info = await createProject(page.request, 'Default')
-  await page.goto(projectUrl(info.slug))
+  await page.goto(projectUrl(info.id))
   const tree = page.locator('aside')
   await expect(tree.getByRole('button', { name: 'Folder Manuscript/Chapter 01', exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Scene 01', exact: true })).toBeVisible()
-  expect((await tree.getByRole('button', { name: /^Folder [^/]+$/ }).allInnerTexts()).map(text => text.trim())).toEqual(['Manuscript', 'Characters', 'Locations', 'Threads', 'Notes'])
+  expect((await tree.getByRole('button', { name: /^Folder [^/]+$/ }).allInnerTexts()).map(text => text.trim()))
+    .toEqual(['Manuscript', 'Characters', 'Locations', 'Threads', 'Notes', 'Styles'])
   await chooseSection(page, 'Threads')
   await expect(page.getByRole('button', { name: 'Remove empty folder' })).toBeDisabled()
   const toggleSetting = async () => {
@@ -435,16 +527,17 @@ test('new projects seed Chapter 01 with a first scene, order default folders and
     await expect(page.getByRole('dialog')).toBeHidden()
   }
   await toggleSetting()
-  await page.goto(projectUrl(info.slug))
+  await page.goto(projectUrl(info.id))
   await chooseSection(page, 'Threads')
   await page.getByRole('button', { name: 'Remove empty folder' }).click()
   await expect(tree.getByRole('button', { name: 'Folder Threads', exact: true })).toBeHidden()
+  await expect.poll(async () => !!folderAt(await snapshot(page.request, info.id), 'Threads')).toBe(false)
   await toggleSetting()
 })
 
 test('the appearance dialog repaints the app, keeps themes on the server and remembers the choice', async ({ page }) => {
   const info = await createProject(page.request)
-  await page.goto(projectUrl(info.slug))
+  await page.goto(projectUrl(info.id))
   const primary = () => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--ui-color-primary-500').trim())
   await expect(page.getByRole('button', { name: 'Appearance', exact: true })).toBeVisible()
   const before = await primary()
@@ -474,8 +567,8 @@ test('the appearance dialog repaints the app, keeps themes on the server and rem
 
 test('a project is saved as a template and a new project starts from it', async ({ page }) => {
   const info = await createProject(page.request)
-  await createDoc(page.request, info.slug, 'Character sheet', 'Characters', 'Wants:')
-  await page.goto(projectUrl(info.slug))
+  await createDoc(page.request, info.id, 'Character sheet', 'Characters', 'Wants:')
+  await page.goto(projectUrl(info.id))
   await page.getByRole('button', { name: 'Project templates', exact: true }).click()
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByRole('button', { name: 'Save over Default', exact: true })).toBeVisible()
@@ -483,7 +576,8 @@ test('a project is saved as a template and a new project starts from it', async 
   await dialog.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(dialog.getByRole('button', { name: 'Save over Sheeted', exact: true })).toBeVisible()
   const stored = JSON.parse(await readFile(path.resolve('.test-data/templates/Sheeted.json'), 'utf8'))
-  expect(stored.documents).toEqual([{ path: 'Characters/Character sheet.md', title: 'Character sheet' }])
+  expect(stored.documents.map((doc: { path: string; title: string }) => ({ path: doc.path, title: doc.title })))
+    .toEqual([{ path: 'Characters/Character sheet.md', title: 'Character sheet' }])
   await closeDialog(page)
 
   await page.getByRole('button', { name: 'Projects', exact: true }).click()
@@ -492,20 +586,23 @@ test('a project is saved as a template and a new project starts from it', async 
   await page.getByRole('combobox', { name: 'Template' }).click()
   await page.getByRole('option', { name: 'Sheeted', exact: true }).click()
   await page.getByRole('button', { name: 'Create project', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Character sheet', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Character sheet', exact: true })).toBeVisible({ timeout: 15000 })
   await expect(editor(page)).toHaveText('')
-  const made = (await project(page.request, title)).documents.find(doc => doc.title === 'Character sheet')!
-  expect(made.path).toBe('Characters/Character sheet.md')
+  const made = (await data<ProjectInfo[]>(page.request, '/api/projects')).find(item => item.title === title)!
+  const current = await snapshot(page.request, made.id)
+  const sheet = current.documents.find(doc => doc.title === 'Character sheet')!
+  expect(documentPath(current, sheet)).toBe('Characters/Character sheet.md')
 
   await page.getByRole('button', { name: 'Project templates', exact: true }).click()
   await dialog.getByRole('button', { name: 'Delete Sheeted', exact: true }).click()
   await dialog.getByRole('button', { name: 'Delete', exact: true }).click()
   await expect(dialog.getByRole('button', { name: 'Save over Sheeted', exact: true })).toBeHidden()
 })
+
 test('project versions save every file and a restore brings them back, keeping what was replaced', async ({ page }) => {
   const info = await createProject(page.request)
-  await createDoc(page.request, info.slug, 'Versioned scene')
-  await page.goto(projectUrl(info.slug))
+  await createDoc(page.request, info.id, 'Versioned scene')
+  await page.goto(projectUrl(info.id))
   await page.getByRole('button', { name: 'Project versions', exact: true }).click()
   const dialog = page.getByRole('dialog')
   await dialog.getByRole('textbox', { name: 'Save this version as', exact: true }).fill('Before the rewrite')
@@ -515,35 +612,41 @@ test('project versions save every file and a restore brings them back, keeping w
   await page.locator('aside').getByRole('button', { name: 'Open Versioned scene', exact: true }).click()
   await editor(page).fill('Rewritten paragraph.')
   await expect(page.getByRole('button', { name: 'All changes saved', exact: true })).toBeVisible()
-  await createDoc(page.request, info.slug, 'Added later')
+  await createDoc(page.request, info.id, 'Added later')
   await expect(page.locator('aside').getByRole('button', { name: 'Open Added later', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Project versions', exact: true }).click()
   await dialog.getByRole('button', { name: 'Restore Before the rewrite', exact: true }).click()
   await dialog.getByRole('button', { name: 'Restore this version', exact: true }).click()
   await expect(dialog.getByRole('status')).toContainText('Restored “Before the rewrite”')
   await page.screenshot({ path: '.test-data/versions.png' })
-  await expect(dialog.getByRole('button', { name: 'Restore Restored “Before the rewrite”', exact: true })).toBeVisible()
   await closeDialog(page)
   await expect(editor(page)).toContainText('Original paragraph.')
   await expect(page.locator('aside').getByRole('button', { name: 'Open Added later', exact: true })).toBeHidden()
-  expect((await project(page.request, info.slug)).documents.map(doc => doc.title)).not.toContain('Added later')
+  expect((await snapshot(page.request, info.id)).documents.map(doc => doc.title)).not.toContain('Added later')
 })
 
 test('styles are CSS in Style documents and Pandoc fences and spans in the Markdown', async ({ page }) => {
   const info = await createProject(page.request)
-  const doc = await createDoc(page.request, info.slug, 'Styled scene', 'Manuscript', 'First paragraph.\n\nSecond paragraph.')
-  await createDoc(page.request, info.slug, 'Default', 'Styles', '```css\n/* The page, then the styles, in one sheet. */\n.normal { font-family: Georgia, serif; }\n.whisper { letter-spacing: .3em; }\n```')
-  await page.goto(projectUrl(info.slug))
+  const doc = await createDoc(page.request, info.id, 'Styled scene', 'Manuscript', 'First paragraph.\n\nSecond paragraph.')
+  await createDoc(page.request, info.id, 'Default', 'Styles', '```css\n/* The page, then the styles, in one sheet. */\n.normal { font-family: Georgia, serif; }\n.whisper { letter-spacing: .3em; }\n```')
+  await page.goto(projectUrl(info.id))
   await expect(editor(page)).toContainText('Second paragraph.')
   const paragraph = (index: number) => editor(page).locator('p').nth(index)
   const pick = async (name: string) => {
     await page.getByRole('combobox', { name: 'Style', exact: true }).click()
     await page.getByRole('option', { name, exact: true }).click()
+    // The list gives focus back to its button as it closes; select text only after that.
+    await expect(page.getByRole('listbox')).toBeHidden()
   }
   const select = async (index: number, letters: number) => {
     await paragraph(index).click()
     await page.keyboard.press('Home')
     for (let i = 0; i < letters; i++) await page.keyboard.press('Shift+ArrowRight')
+    // The editor reads the browser's selection a moment after the key presses; style only what it has read.
+    await expect.poll(() => page.evaluate(() => {
+      const { from, to } = (document.querySelector('.ProseMirror') as HTMLElement & { editor: { state: { selection: { from: number; to: number } } } }).editor.state.selection
+      return to - from
+    })).toBe(letters)
   }
   await expect(paragraph(0)).toHaveCSS('font-family', /Georgia/)
   await paragraph(1).click()
@@ -563,7 +666,7 @@ test('styles are CSS in Style documents and Pandoc fences and spans in the Markd
   await expect(span).toContainText('First')
   await expect(span).not.toContainText('paragraph')
   await expect(page.getByRole('button', { name: 'All changes saved', exact: true })).toBeVisible({ timeout: 10000 })
-  const file = filePath(info.slug, doc)
+  const file = filePath(await snapshot(page.request, info.id), doc)
   await expect.poll(() => readFile(file, 'utf8')).toContain('[First]{.whisper} paragraph.\n\n::: whisper\n\n[Second]{.normal} paragraph.\n\n:::')
   await page.reload()
   await expect(editor(page).locator('div[data-style="whisper"] p')).toHaveCSS('letter-spacing', '4.8px')

@@ -11,7 +11,7 @@ watch(open, value => {
   error.value = ''
   confirming.value = ''
   saved.value = ''
-  saveAs.value = project.value?.settings.title.slice(0, 60) ?? ''
+  saveAs.value = project.value?.project.title.slice(0, 60) ?? ''
   void run(workspace.loadTemplates)
 })
 const clean = computed(() => saveAs.value.trim())

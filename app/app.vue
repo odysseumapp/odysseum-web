@@ -2,7 +2,7 @@
 const workspace = useWorkspace()
 const { loading, authenticated, error, connected, durable, project } = workspace
 const { $pwa } = useNuxtApp()
-useHead({ title: () => project.value ? `${project.value.settings.title} — Odysseum` : 'Odysseum' })
+useHead({ title: () => project.value ? `${project.value.project.title} — Odysseum` : 'Odysseum' })
 </script>
 
 <template>

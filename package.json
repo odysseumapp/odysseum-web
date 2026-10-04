@@ -16,6 +16,7 @@
     "test": "playwright test"
   },
   "dependencies": {
+    "@microsoft/signalr": "^9.0.19",
     "@nuxt/ui": "^4.11.1",
     "@tiptap/core": "^3.31.3",
     "@tiptap/extension-highlight": "^3.31.3",

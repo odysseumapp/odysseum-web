@@ -1,28 +1,29 @@
 import type { IOdysseumApi } from '../api/IOdysseumApi'
 import { isOffline } from '../api/IApiClient'
-import type { Snapshot } from '../models'
-import type { IMirrorStore } from '../storage'
+import type { Version } from '../models'
+import type { IMirrorRepository } from '../storage'
 
+/** The versions of a document, and the texts already read, so that history works offline for what was seen before. */
 export class HistoryCache {
-  constructor(private readonly api: IOdysseumApi, private readonly mirror: IMirrorStore) {}
+  constructor(private readonly api: IOdysseumApi, private readonly mirror: IMirrorRepository) {}
 
-  async list(slug: string, id: string): Promise<{ snapshots: Snapshot[]; fresh: boolean }> {
+  async list(projectId: string, id: string): Promise<{ versions: Version[]; fresh: boolean }> {
     try {
-      const snapshots = await this.api.listSnapshots(slug, id)
-      const cached = await this.mirror.getSnapshots(slug, id)
-      await this.mirror.putSnapshots({ slug, id, list: snapshots, contents: cached?.contents ?? {} })
-      return { snapshots, fresh: true }
+      const versions = await this.api.listDocumentVersions(id)
+      const cached = await this.mirror.getVersions(projectId, id)
+      await this.mirror.putVersions({ projectId, id, list: versions, texts: cached?.texts ?? {} })
+      return { versions, fresh: true }
     } catch (ex) {
       if (!isOffline(ex)) throw ex
-      return { snapshots: (await this.mirror.getSnapshots(slug, id))?.list ?? [], fresh: false }
+      return { versions: (await this.mirror.getVersions(projectId, id))?.list ?? [], fresh: false }
     }
   }
 
-  async read(slug: string, id: string, snapshot: string): Promise<string> {
-    const cached = await this.mirror.getSnapshots(slug, id)
-    if (cached?.contents[snapshot] !== undefined) return cached.contents[snapshot]
-    const content = await this.api.getSnapshot(slug, id, snapshot)
-    await this.mirror.putSnapshots({ slug, id, list: cached?.list ?? [], contents: { ...cached?.contents, [snapshot]: content } })
-    return content
+  async read(projectId: string, id: string, versionId: string): Promise<string> {
+    const cached = await this.mirror.getVersions(projectId, id)
+    if (cached?.texts[versionId] !== undefined) return cached.texts[versionId]
+    const text = await this.api.getDocumentVersionText(id, versionId)
+    await this.mirror.putVersions({ projectId, id, list: cached?.list ?? [], texts: { ...cached?.texts, [versionId]: text } })
+    return text
   }
 }

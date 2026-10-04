@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { folderIcon, kindIcons, linkedDocuments, type FolderItem } from '~/services/FolderStructure'
-const props = defineProps<{ item: FolderItem; compact?: boolean }>()
+import { itemIcon, kindIcons, linkedDocuments } from '~/services/FolderStructure'
+import type { ViewItem } from '../contract'
+/** The card for a document or folder: its icon, title, synopsis, word count and links. Folders look like a stack. */
+const props = defineProps<{ item: ViewItem; compact?: boolean }>()
 const emit = defineEmits<{ open: [] }>()
 const { project } = useWorkspace()
 const links = computed(() => props.item.document && !props.compact && project.value ? linkedDocuments(project.value, props.item.document.id) : [])
+const icon = computed(() => project.value ? itemIcon(project.value, props.item) : 'i-lucide-file-text')
 const shown = 6
 </script>
 
@@ -12,7 +15,7 @@ const shown = 6
     <template v-if="item.folder"><div class="absolute inset-0 top-2 left-2 rounded-lg border border-default bg-muted" /><div class="absolute inset-1 rounded-lg border border-default bg-elevated" /></template>
     <div class="relative rounded-lg border border-default bg-default p-3" :class="{ 'min-h-28': !compact }">
       <button type="button" class="flex items-center gap-2 w-full text-left font-medium focus-visible:outline-2 focus-visible:outline-primary" :aria-label="`${item.folder ? 'Open folder' : 'Open'} ${item.title}`" @click="!item.folder && emit('open')" @keydown.enter.prevent="emit('open')" @keydown.space.prevent="emit('open')">
-        <UIcon :name="item.folder ? folderIcon(item.folder.path) : kindIcons[item.document.kind]" class="size-4 shrink-0" /><span class="truncate">{{ item.title }}</span>
+        <UIcon :name="icon" class="size-4 shrink-0" /><span class="truncate">{{ item.title }}</span>
       </button>
       <p v-if="item.folder" class="text-xs text-muted mt-2">Folder · double-click to open</p>
       <template v-else-if="!compact">
